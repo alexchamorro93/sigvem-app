@@ -25,6 +25,7 @@ import logo from './assets/logo.jpg';
 import { ParteRelevoForm } from './components/ParteRelevoForm';
 import {
   encryptAES256, decryptAES256,
+  hashSHA256,
   ClassificationLevel, createSecureSession, generateCSRFToken,
   recordFailedLoginAttempt, clearLoginAttempts, isAccountLocked, getDeviceInfo,
   validateMilitaryPassword, isCommonPassword, createSecurityAuditLog, MILITARY_ROLES
@@ -852,7 +853,7 @@ const AppWeb: React.FC = () => {
     return null;
   };
 
-  const toAuthEmail = (username: string) => {
+  const toAuthEmailLegacy = (username: string) => {
     const safeLocalPart = username
       .trim()
       .toLowerCase()
@@ -864,6 +865,21 @@ const AppWeb: React.FC = () => {
 
     return `${safeLocalPart || 'usuario'}@sigvem.local`;
   };
+
+  const toAuthEmailV2 = (username: string) => {
+    const legacyLocal = toAuthEmailLegacy(username).split('@')[0] || 'usuario';
+    const canonical = username.trim().toLowerCase();
+    const hash = hashSHA256(canonical).slice(0, 8).toLowerCase();
+    return `${legacyLocal}.${hash}@sigvem.local`;
+  };
+
+  const toAuthEmailCandidates = (username: string) => {
+    const legacy = toAuthEmailLegacy(username);
+    const v2 = toAuthEmailV2(username);
+    return Array.from(new Set([legacy, v2]));
+  };
+
+  const toAuthEmail = (username: string) => toAuthEmailCandidates(username)[0];
 
   const ensureAuthTokenReady = async (firebaseUser: any) => {
     if (!firebaseUser) return;
@@ -2114,32 +2130,45 @@ const AppWeb: React.FC = () => {
         return;
       }
 
-      const resolvedEmail = toAuthEmail(trimmedUsername);
+      const emailCandidates = toAuthEmailCandidates(trimmedUsername);
+      let resolvedEmail = emailCandidates[0];
+      let loginCredential: any = null;
+      let lastAuthErr: any = null;
 
-      const loginCredential = await signInWithEmailAndPassword(auth, resolvedEmail, loginPassword).catch((authErr: any) => {
+      for (const emailCandidate of emailCandidates) {
+        const candidateCredential = await signInWithEmailAndPassword(auth, emailCandidate, loginPassword).catch((authErr: any) => {
+          lastAuthErr = authErr;
+          return null;
+        });
+        if (candidateCredential) {
+          loginCredential = candidateCredential;
+          resolvedEmail = emailCandidate;
+          break;
+        }
+      }
+
+      if (!loginCredential) {
         const canContinue = recordFailedLoginAttempt(trimmedUsername);
         if (!canContinue) {
           setError('Demasiados intentos. Cuenta bloqueada temporalmente.');
           setSecurityAlerts(prev => [...prev, `[SECURITY] Cuenta bloqueada por fuerza bruta: ${trimmedUsername}`]);
-          return null;
+          setLoading(false);
+          return;
         }
 
-        if (authErr?.code === 'auth/configuration-not-found') {
+        if (lastAuthErr?.code === 'auth/configuration-not-found') {
           setError('Autenticación no configurada en Firebase (Email/Password deshabilitado). Contacta con administrador.');
-          return null;
+          setLoading(false);
+          return;
         }
 
-        if (authErr?.code === 'auth/user-not-found' || authErr?.code === 'auth/invalid-credential') {
+        if (lastAuthErr?.code === 'auth/user-not-found' || lastAuthErr?.code === 'auth/invalid-credential' || lastAuthErr?.code === 'auth/wrong-password') {
           setError('Usuario o contraseña incorrectos');
-          return null;
+          setLoading(false);
+          return;
         }
 
-        setError(authErr?.message || 'No se pudo iniciar sesión');
-        return null;
-      });
-
-      if (!loginCredential) {
-        setError('Usuario o contraseña incorrectos');
+        setError(lastAuthErr?.message || 'No se pudo iniciar sesión');
         setLoading(false);
         return;
       }
@@ -2568,7 +2597,8 @@ const AppWeb: React.FC = () => {
                   }
 
                   const username = newCompanyForm.managerUsername.trim();
-                  const userEmail = toAuthEmail(username);
+                  const userEmailCandidates = toAuthEmailCandidates(username);
+                  let userEmail = userEmailCandidates[0];
 
                   // En auto-registro no hay permisos para leer /users antes de autenticarse.
                   // La unicidad se valida con Firebase Auth (email-already-in-use).
@@ -2606,26 +2636,38 @@ const AppWeb: React.FC = () => {
                   let createdUid = '';
 
                   if (isSelfRegistration) {
-                    const authCredential = await createUserWithEmailAndPassword(auth, userEmail, newCompanyForm.managerPassword).catch(async (authErr: any) => {
-                      if (authErr?.code === 'auth/email-already-in-use') {
-                        const existingCredential = await signInWithEmailAndPassword(auth, userEmail, newCompanyForm.managerPassword).catch(() => null);
-                        if (existingCredential) {
-                          reusedExistingAuthUser = true;
-                          return existingCredential;
+                    let authCredential: any = null;
+                    let lastAuthErr: any = null;
+
+                    for (const emailCandidate of userEmailCandidates) {
+                      userEmail = emailCandidate;
+                      const created = await createUserWithEmailAndPassword(auth, emailCandidate, newCompanyForm.managerPassword).catch(async (authErr: any) => {
+                        lastAuthErr = authErr;
+                        if (authErr?.code === 'auth/email-already-in-use') {
+                          const existingCredential = await signInWithEmailAndPassword(auth, emailCandidate, newCompanyForm.managerPassword).catch(() => null);
+                          if (existingCredential) {
+                            reusedExistingAuthUser = true;
+                            return existingCredential;
+                          }
                         }
-
-                        setError('El usuario ya existe y la contraseña no coincide');
                         return null;
-                      }
+                      });
 
-                      if (authErr?.code === 'auth/configuration-not-found') {
+                      if (created) {
+                        authCredential = created;
+                        break;
+                      }
+                    }
+
+                    if (!authCredential) {
+                      if (lastAuthErr?.code === 'auth/configuration-not-found') {
                         setError('Autenticación no configurada en Firebase (Email/Password deshabilitado). Contacta con administrador.');
-                        return null;
+                      } else if (lastAuthErr?.code === 'auth/email-already-in-use') {
+                        setError('El usuario ya existe o hay conflicto con un nombre similar. Prueba con otro nombre de usuario.');
+                      } else {
+                        setError(lastAuthErr?.message || 'No se pudo crear el usuario');
                       }
-
-                      setError(authErr?.message || 'No se pudo crear el usuario');
-                      return null;
-                    });
+                    }
 
                     if (!authCredential) {
                       setLoading(false);
@@ -3760,28 +3802,40 @@ const AppWeb: React.FC = () => {
       let companyId = '';
       const savedUsername = registerForm.username.trim();
       const savedPassword = registerForm.password;
-      const email = toAuthEmail(savedUsername);
+      const emailCandidates = toAuthEmailCandidates(savedUsername);
+      let email = emailCandidates[0];
+      let authCredential: any = null;
+      let lastAuthErr: any = null;
 
-      const authCredential = await createUserWithEmailAndPassword(auth, email, savedPassword).catch(async (authErr: any) => {
-        if (authErr?.code === 'auth/email-already-in-use') {
-          const existingCredential = await signInWithEmailAndPassword(auth, email, savedPassword).catch(() => null);
-          if (existingCredential) {
-            reusedExistingAuthUser = true;
-            return existingCredential;
+      for (const emailCandidate of emailCandidates) {
+        email = emailCandidate;
+        const created = await createUserWithEmailAndPassword(auth, emailCandidate, savedPassword).catch(async (authErr: any) => {
+          lastAuthErr = authErr;
+          if (authErr?.code === 'auth/email-already-in-use') {
+            const existingCredential = await signInWithEmailAndPassword(auth, emailCandidate, savedPassword).catch(() => null);
+            if (existingCredential) {
+              reusedExistingAuthUser = true;
+              return existingCredential;
+            }
           }
-
-          setError('El usuario ya existe y la contraseña no coincide');
           return null;
-        }
+        });
 
-        if (authErr?.code === 'auth/configuration-not-found') {
+        if (created) {
+          authCredential = created;
+          break;
+        }
+      }
+
+      if (!authCredential) {
+        if (lastAuthErr?.code === 'auth/configuration-not-found') {
           setError('Autenticación no configurada en Firebase (Email/Password deshabilitado). Contacta con administrador.');
-          return null;
+        } else if (lastAuthErr?.code === 'auth/email-already-in-use') {
+          setError('El usuario ya existe o hay conflicto con un nombre similar. Prueba con otro nombre de usuario.');
+        } else {
+          setError(lastAuthErr?.message || 'No se pudo registrar el usuario');
         }
-
-        setError(authErr?.message || 'No se pudo registrar el usuario');
-        return null;
-      });
+      }
 
       if (!authCredential) {
         setLoading(false);
@@ -3941,8 +3995,25 @@ const AppWeb: React.FC = () => {
 
       // Crear usuario encargado
       const encryptedPassword = encryptAES256(managerPassword);
-      const managerEmail = toAuthEmail(managerUsername);
-      const managerUid = await createAuthUserWithoutSwitchingSession(managerEmail, managerPassword);
+      const managerEmailCandidates = toAuthEmailCandidates(managerUsername);
+      let managerEmail = managerEmailCandidates[0];
+      let managerUid = '';
+
+      for (const emailCandidate of managerEmailCandidates) {
+        try {
+          managerEmail = emailCandidate;
+          managerUid = await createAuthUserWithoutSwitchingSession(emailCandidate, managerPassword);
+          break;
+        } catch (authErr: any) {
+          if (authErr?.code !== 'auth/email-already-in-use') {
+            throw authErr;
+          }
+        }
+      }
+
+      if (!managerUid) {
+        throw new Error('El usuario ya existe o hay conflicto con un nombre similar. Usa otro nombre de usuario.');
+      }
       await setDoc(doc(db, 'users', managerUid), {
         username: managerUsername,
         email: managerEmail,
