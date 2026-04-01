@@ -879,8 +879,6 @@ const AppWeb: React.FC = () => {
     return Array.from(new Set([legacy, v2]));
   };
 
-  const toAuthEmail = (username: string) => toAuthEmailCandidates(username)[0];
-
   const ensureAuthTokenReady = async (firebaseUser: any) => {
     if (!firebaseUser) return;
     // Fuerza emisión de token y da margen a Firebase Auth para propagar request.auth
@@ -2136,14 +2134,12 @@ const AppWeb: React.FC = () => {
       let lastAuthErr: any = null;
 
       for (const emailCandidate of emailCandidates) {
-        const candidateCredential = await signInWithEmailAndPassword(auth, emailCandidate, loginPassword).catch((authErr: any) => {
-          lastAuthErr = authErr;
-          return null;
-        });
-        if (candidateCredential) {
-          loginCredential = candidateCredential;
+        try {
+          loginCredential = await signInWithEmailAndPassword(auth, emailCandidate, loginPassword);
           resolvedEmail = emailCandidate;
           break;
+        } catch (authErr: any) {
+          lastAuthErr = authErr;
         }
       }
 
@@ -2641,20 +2637,23 @@ const AppWeb: React.FC = () => {
 
                     for (const emailCandidate of userEmailCandidates) {
                       userEmail = emailCandidate;
-                      const created = await createUserWithEmailAndPassword(auth, emailCandidate, newCompanyForm.managerPassword).catch(async (authErr: any) => {
+                      try {
+                        authCredential = await createUserWithEmailAndPassword(auth, emailCandidate, newCompanyForm.managerPassword);
+                        break;
+                      } catch (authErr: any) {
                         lastAuthErr = authErr;
                         if (authErr?.code === 'auth/email-already-in-use') {
-                          const existingCredential = await signInWithEmailAndPassword(auth, emailCandidate, newCompanyForm.managerPassword).catch(() => null);
-                          if (existingCredential) {
+                          try {
+                            authCredential = await signInWithEmailAndPassword(auth, emailCandidate, newCompanyForm.managerPassword);
                             reusedExistingAuthUser = true;
-                            return existingCredential;
+                            break;
+                          } catch {
+                            // continuar con el siguiente candidato
                           }
                         }
-                        return null;
-                      });
+                      }
 
-                      if (created) {
-                        authCredential = created;
+                      if (authCredential) {
                         break;
                       }
                     }
@@ -3809,20 +3808,23 @@ const AppWeb: React.FC = () => {
 
       for (const emailCandidate of emailCandidates) {
         email = emailCandidate;
-        const created = await createUserWithEmailAndPassword(auth, emailCandidate, savedPassword).catch(async (authErr: any) => {
+        try {
+          authCredential = await createUserWithEmailAndPassword(auth, emailCandidate, savedPassword);
+          break;
+        } catch (authErr: any) {
           lastAuthErr = authErr;
           if (authErr?.code === 'auth/email-already-in-use') {
-            const existingCredential = await signInWithEmailAndPassword(auth, emailCandidate, savedPassword).catch(() => null);
-            if (existingCredential) {
+            try {
+              authCredential = await signInWithEmailAndPassword(auth, emailCandidate, savedPassword);
               reusedExistingAuthUser = true;
-              return existingCredential;
+              break;
+            } catch {
+              // continuar con el siguiente candidato
             }
           }
-          return null;
-        });
+        }
 
-        if (created) {
-          authCredential = created;
+        if (authCredential) {
           break;
         }
       }
