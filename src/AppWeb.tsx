@@ -2630,8 +2630,8 @@ const AppWeb: React.FC = () => {
                   }
 
                   // Si se proporciona código de sección, buscar la sección
-                  let sectionId = null;
-                  let companyId = newCompanyForm.companyId || null;
+                  let sectionId: string | null = null;
+                  let companyId: string | null = newCompanyForm.companyId || null;
                   if (!isSelfRegistration && newCompanyForm.sectionId) {
                     const sectionsRef = collection(db, 'sections');
                     const qSec = query(sectionsRef, where('accessCode', '==', newCompanyForm.sectionId));
