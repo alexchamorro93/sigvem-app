@@ -886,6 +886,20 @@ const AppWeb: React.FC = () => {
     await new Promise((resolve) => setTimeout(resolve, 150));
   };
 
+  const runWithAuthRetry = async <T,>(operation: () => Promise<T>, firebaseUser?: any): Promise<T> => {
+    try {
+      return await operation();
+    } catch (err: any) {
+      if (err?.code !== 'permission-denied') {
+        throw err;
+      }
+
+      await ensureAuthTokenReady(firebaseUser || auth.currentUser);
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return operation();
+    }
+  };
+
   const createAuthUserWithoutSwitchingSession = async (email: string, password: string) => {
     const secondaryName = `sigvem-secondary-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const secondaryApp = initializeApp(app.options, secondaryName);
@@ -2683,7 +2697,7 @@ const AppWeb: React.FC = () => {
                   if (isSelfRegistration && newCompanyForm.sectionId) {
                     const sectionsRef = collection(db, 'sections');
                     const qSec = query(sectionsRef, where('accessCode', '==', newCompanyForm.sectionId));
-                    const sectionSnapshot = await getDocs(qSec);
+                    const sectionSnapshot = await runWithAuthRetry(() => getDocs(qSec), createdAuthUser);
 
                     if (!sectionSnapshot.empty) {
                       sectionId = sectionSnapshot.docs[0].id;
@@ -2699,7 +2713,7 @@ const AppWeb: React.FC = () => {
                     }
                   }
 
-                  await setDoc(doc(db, 'users', createdUid), {
+                  await runWithAuthRetry(() => setDoc(doc(db, 'users', createdUid), {
                     username,
                     email: userEmail,
                     authUid: createdUid,
@@ -2709,7 +2723,7 @@ const AppWeb: React.FC = () => {
                     companyId,
                     createdAt: new Date(),
                     classification: MILITARY_ROLES[newCompanyForm.userRole]?.classification || ClassificationLevel.RESTRICTED
-                  });
+                  }), createdAuthUser);
 
                   if (isSelfRegistration) {
                     await signOutAuth(auth).catch(() => undefined);
@@ -3849,7 +3863,7 @@ const AppWeb: React.FC = () => {
       await ensureAuthTokenReady(authCredential.user);
 
       const sectionsQuery = query(collection(db, 'sections'), where('accessCode', '==', registerForm.accessCode.trim()));
-      const sectionDocs = await getDocs(sectionsQuery);
+      const sectionDocs = await runWithAuthRetry(() => getDocs(sectionsQuery), createdAuthUser);
 
       if (sectionDocs.empty) {
         if (!reusedExistingAuthUser) {
@@ -3872,7 +3886,7 @@ const AppWeb: React.FC = () => {
       // ========== ENCRIPTAR DATOS SENSIBLES ==========
       const encryptedPassword = encryptAES256(savedPassword);
 
-      await setDoc(doc(db, 'users', createdUid), {
+      await runWithAuthRetry(() => setDoc(doc(db, 'users', createdUid), {
         username: savedUsername,
         email,
         authUid: createdUid,
@@ -3882,7 +3896,7 @@ const AppWeb: React.FC = () => {
         role: registerForm.role,
         createdAt: new Date(),
         classification: MILITARY_ROLES[registerForm.role]?.classification || ClassificationLevel.RESTRICTED
-      });
+      }), createdAuthUser);
 
       console.log('[handleRegister] Usuario creado exitosamente - Contraseña encriptada');
 
