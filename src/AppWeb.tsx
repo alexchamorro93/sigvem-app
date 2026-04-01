@@ -883,21 +883,26 @@ const AppWeb: React.FC = () => {
     if (!firebaseUser) return;
     // Fuerza emisión de token y da margen a Firebase Auth para propagar request.auth
     await firebaseUser.getIdToken(true);
-    await new Promise((resolve) => setTimeout(resolve, 150));
+    await new Promise((resolve) => setTimeout(resolve, 500));
   };
 
   const runWithAuthRetry = async <T,>(operation: () => Promise<T>, firebaseUser?: any): Promise<T> => {
-    try {
-      return await operation();
-    } catch (err: any) {
-      if (err?.code !== 'permission-denied') {
-        throw err;
-      }
+    let lastError: any = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try {
+        return await operation();
+      } catch (err: any) {
+        lastError = err;
+        if (err?.code !== 'permission-denied' || attempt === 3) {
+          throw err;
+        }
 
-      await ensureAuthTokenReady(firebaseUser || auth.currentUser);
-      await new Promise((resolve) => setTimeout(resolve, 300));
-      return operation();
+        await ensureAuthTokenReady(firebaseUser || auth.currentUser);
+        await new Promise((resolve) => setTimeout(resolve, 400 + attempt * 250));
+      }
     }
+
+    throw lastError;
   };
 
   const createAuthUserWithoutSwitchingSession = async (email: string, password: string) => {
@@ -2748,7 +2753,11 @@ const AppWeb: React.FC = () => {
                   }
 
                   if (err?.code === 'permission-denied') {
-                    setError('Permisos insuficientes para crear usuario con tu rol actual');
+                    if (isSelfRegistration) {
+                      setError('No se pudo validar permisos de registro en este momento. Reintenta en 2-3 segundos.');
+                    } else {
+                      setError('Permisos insuficientes para crear usuario con tu rol actual');
+                    }
                   } else {
                     setError(err.message);
                   }
