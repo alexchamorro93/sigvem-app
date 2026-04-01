@@ -2649,6 +2649,7 @@ const AppWeb: React.FC = () => {
                   // Si se proporciona código de sección, buscar la sección
                   let sectionId: string | null = null;
                   let companyId: string | null = newCompanyForm.companyId || null;
+                  const pendingAccessCode = (newCompanyForm.sectionId || '').trim();
                   if (!isSelfRegistration && newCompanyForm.sectionId) {
                     const sectionsRef = collection(db, 'sections');
                     const qSec = query(sectionsRef, where('accessCode', '==', newCompanyForm.sectionId));
@@ -2718,14 +2719,32 @@ const AppWeb: React.FC = () => {
                     createdUid = await createAuthUserWithoutSwitchingSession(userEmail, newCompanyForm.managerPassword);
                   }
 
-                  if (isSelfRegistration && newCompanyForm.sectionId) {
+                  await runWithAuthRetry(() => setDoc(doc(db, 'users', createdUid), {
+                    username,
+                    email: userEmail,
+                    authUid: createdUid,
+                    password: encryptedPassword,
+                    role: newCompanyForm.userRole || 'operador',
+                    sectionId: isSelfRegistration ? null : (sectionId || null),
+                    companyId: isSelfRegistration ? null : companyId,
+                    accessCode: isSelfRegistration ? (pendingAccessCode || null) : null,
+                    createdAt: new Date(),
+                    classification: MILITARY_ROLES[newCompanyForm.userRole]?.classification || ClassificationLevel.RESTRICTED
+                  }), createdAuthUser);
+
+                  if (isSelfRegistration && pendingAccessCode) {
                     const sectionsRef = collection(db, 'sections');
-                    const qSec = query(sectionsRef, where('accessCode', '==', newCompanyForm.sectionId));
+                    const qSec = query(sectionsRef, where('accessCode', '==', pendingAccessCode));
                     const sectionSnapshot = await runWithAuthRetry(() => getDocs(qSec), createdAuthUser);
 
                     if (!sectionSnapshot.empty) {
                       sectionId = sectionSnapshot.docs[0].id;
                       companyId = sectionSnapshot.docs[0].data().companyId || companyId;
+
+                      await runWithAuthRetry(() => updateDoc(doc(db, 'users', createdUid), {
+                        sectionId: sectionId || null,
+                        companyId: companyId || null
+                      }), createdAuthUser);
                     } else {
                       if (!reusedExistingAuthUser) {
                         await deleteAuthUser(createdAuthUser).catch(() => undefined);
@@ -2736,18 +2755,6 @@ const AppWeb: React.FC = () => {
                       return;
                     }
                   }
-
-                  await runWithAuthRetry(() => setDoc(doc(db, 'users', createdUid), {
-                    username,
-                    email: userEmail,
-                    authUid: createdUid,
-                    password: encryptedPassword,
-                    role: newCompanyForm.userRole || 'operador',
-                    sectionId: sectionId || null,
-                    companyId,
-                    createdAt: new Date(),
-                    classification: MILITARY_ROLES[newCompanyForm.userRole]?.classification || ClassificationLevel.RESTRICTED
-                  }), createdAuthUser);
 
                   if (isSelfRegistration) {
                     await signOutAuth(auth).catch(() => undefined);
@@ -3892,6 +3899,27 @@ const AppWeb: React.FC = () => {
       await waitForAuthSession(createdUid);
       await ensureAuthTokenReady(freshCredential.user);
 
+      console.log('[handleRegister] Creando usuario con username:', savedUsername);
+      console.log('[handleRegister] Role:', registerForm.role);
+      console.log('[handleRegister] CompanyId:', registerForm.companyId);
+      console.log('[handleRegister] SectionId:', registerForm.sectionId);
+
+      // ========== ENCRIPTAR DATOS SENSIBLES ==========
+      const encryptedPassword = encryptAES256(savedPassword);
+
+      await runWithAuthRetry(() => setDoc(doc(db, 'users', createdUid), {
+        username: savedUsername,
+        email,
+        authUid: createdUid,
+        password: encryptedPassword,
+        companyId: null,
+        sectionId: null,
+        accessCode: registerForm.accessCode.trim(),
+        role: registerForm.role,
+        createdAt: new Date(),
+        classification: MILITARY_ROLES[registerForm.role]?.classification || ClassificationLevel.RESTRICTED
+      }), createdAuthUser);
+
       const sectionsQuery = query(collection(db, 'sections'), where('accessCode', '==', registerForm.accessCode.trim()));
       const sectionDocs = await runWithAuthRetry(() => getDocs(sectionsQuery), createdAuthUser);
 
@@ -3908,24 +3936,9 @@ const AppWeb: React.FC = () => {
       sectionId = sectionDocs.docs[0].id;
       companyId = sectionDocs.docs[0].data().companyId;
 
-      console.log('[handleRegister] Creando usuario con username:', savedUsername);
-      console.log('[handleRegister] Role:', registerForm.role);
-      console.log('[handleRegister] CompanyId:', companyId || registerForm.companyId);
-      console.log('[handleRegister] SectionId:', sectionId || registerForm.sectionId);
-
-      // ========== ENCRIPTAR DATOS SENSIBLES ==========
-      const encryptedPassword = encryptAES256(savedPassword);
-
-      await runWithAuthRetry(() => setDoc(doc(db, 'users', createdUid), {
-        username: savedUsername,
-        email,
-        authUid: createdUid,
-        password: encryptedPassword,
-        companyId: companyId,
-        sectionId: sectionId,
-        role: registerForm.role,
-        createdAt: new Date(),
-        classification: MILITARY_ROLES[registerForm.role]?.classification || ClassificationLevel.RESTRICTED
+      await runWithAuthRetry(() => updateDoc(doc(db, 'users', createdUid), {
+        companyId,
+        sectionId
       }), createdAuthUser);
 
       console.log('[handleRegister] Usuario creado exitosamente - Contraseña encriptada');

@@ -61,7 +61,8 @@ service cloud.firestore {
     function canReadSection(sectionId) {
       return isSuperAdmin() ||
         (userExists() && userSectionId() == sectionId) ||
-        (isCompanyManager() && isSectionInMyCompany(sectionId));
+        (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (userExists() && userDoc().data.accessCode != null && resource.data.accessCode == userDoc().data.accessCode);
     }
 
     function canManageSection(sectionId) {
