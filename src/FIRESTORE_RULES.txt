@@ -1,0 +1,52 @@
+/*
+  FIRESTORE SECURITY RULES Y CONFIGURACIÓN
+  ==========================================
+  
+  ⚠️ REGLAS PARA DESARROLLO (ABIERTAS)
+  
+  IMPORTANTE: Estas son reglas permisivas para DESARROLLO SOLAMENTE.
+  Para PRODUCCIÓN, usar las reglas restrictivas del final del archivo.
+  
+  Copiar estas reglas en Firebase Console > Firestore > Rules
+*/
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // MODO DESARROLLO - PERMITIR TODO
+    // ================================
+    // Permitir todas las operaciones sin restricción
+    // Esto es SOLO para desarrollo. En producción usar las reglas restringidas
+    match /{document=**} {
+      allow read, write, delete: if true;
+    }
+  }
+}
+
+/*
+  ESTRATEGIA DE SEGURIDAD
+  =======================
+  
+  1. AUTENTICACIÓN
+     - Todos los usuarios deben estar autenticados
+     - Mantener tokens seguros
+  
+  2. AUTORIZACIÓN
+     - Super admin: acceso total
+     - Encargado compañía: solo su compañía y secciones
+     - Encargado sección: solo su sección
+     - Operador: solo lectura/escritura en su sección
+     - Consulta: solo lectura
+  
+  3. DATOS SENSIBLES
+     - Documentos personales: encriptados
+     - Logs de auditoría: no borrable (append-only)
+     - Contraseñas: nunca se almacenan (Firebase Auth)
+  
+  4. LÍMITES
+     - Max 100 usuarios por query
+     - Max 100 vehículos por sección
+     - Audit logs: últimos 100 registros
+     - Cache: 1 hora máximo
+*/

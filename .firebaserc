@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "sigvem-app"
+  },
+  "targets": {
+    "sigvem-2": {
+      "hosting": {
+        "staging": [
+          "sigvem-2-staging"
+        ],
+        "production": [
+          "sigvem-2"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

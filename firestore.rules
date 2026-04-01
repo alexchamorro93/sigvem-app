@@ -1,0 +1,212 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function userExists() {
+      return isAuthenticated() && userDoc().data != null;
+    }
+
+    function userRole() {
+      return userDoc().data.role;
+    }
+
+    function userCompanyId() {
+      return userDoc().data.companyId;
+    }
+
+    function userSectionId() {
+      return userDoc().data.sectionId;
+    }
+
+    function isSuperAdmin() {
+      return userExists() && userRole() == 'super_admin';
+    }
+
+    function isCompanyManager() {
+      return userExists() && userRole() == 'encargado_cia';
+    }
+
+    function isSectionManager() {
+      return userExists() && userRole() == 'encargado_seccion';
+    }
+
+    function isOperator() {
+      return userExists() && userRole() == 'operador';
+    }
+
+    function isSectionInMyCompany(sectionId) {
+      return userExists() &&
+        exists(/databases/$(database)/documents/sections/$(sectionId)) &&
+        get(/databases/$(database)/documents/sections/$(sectionId)).data.companyId == userCompanyId();
+    }
+
+    function canReadCompany(companyId) {
+      return isSuperAdmin() ||
+        (userExists() && userCompanyId() == companyId) ||
+        (userExists() && userSectionId() != null && isSectionInMyCompany(userSectionId()));
+    }
+
+    function canManageCompany(companyId) {
+      return isSuperAdmin() || (isCompanyManager() && userCompanyId() == companyId);
+    }
+
+    function canReadSection(sectionId) {
+      return isSuperAdmin() ||
+        (userExists() && userSectionId() == sectionId) ||
+        (isCompanyManager() && isSectionInMyCompany(sectionId));
+    }
+
+    function canManageSection(sectionId) {
+      return isSuperAdmin() ||
+        (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (isSectionManager() && userSectionId() == sectionId);
+    }
+
+    function canReadVehicleBySection(sectionId) {
+      return canReadSection(sectionId) || (isOperator() && userSectionId() == sectionId);
+    }
+
+    function canManageVehicleBySection(sectionId) {
+      return isSuperAdmin() ||
+        (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (isSectionManager() && userSectionId() == sectionId) ||
+        (isOperator() && userSectionId() == sectionId);
+    }
+
+    function canDeleteVehicleBySection(sectionId) {
+      return isSuperAdmin() ||
+        (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (isSectionManager() && userSectionId() == sectionId);
+    }
+
+    function canUpdateVehicleSectionControlFields() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
+        'sectionControlKm',
+        'sectionControlHours',
+        'lastModifiedBy',
+        'lastModifiedAt'
+      ]);
+    }
+
+    function vehicleSectionId(vehicleId) {
+      return get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.sectionId;
+    }
+
+    function canManageUsersInMyCompany() {
+      return isCompanyManager();
+    }
+
+    function isSelfUser(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function selfBootstrapRoleAllowed() {
+      return request.resource.data.role in ['consulta', 'operador', 'encargado_seccion'];
+    }
+
+    function targetUserSameCompany() {
+      return resource.data.companyId == userCompanyId();
+    }
+
+    function targetUserRoleAllowedForCompanyManager() {
+      return resource.data.role in ['consulta', 'operador', 'encargado_seccion'];
+    }
+
+    function newUserRoleAllowedForCompanyManager() {
+      return request.resource.data.role in ['consulta', 'operador', 'encargado_seccion'];
+    }
+
+    match /companies/{companyId} {
+      allow read: if userExists() && canReadCompany(companyId);
+      allow create: if isSuperAdmin();
+      allow update: if userExists() && canManageCompany(companyId);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /sections/{sectionId} {
+      allow read: if (userExists() && canReadSection(sectionId)) || (isAuthenticated() && !userExists());
+      allow create: if isSuperAdmin() || isCompanyManager();
+      allow update: if userExists() && canManageSection(sectionId);
+      allow delete: if isSuperAdmin() || (isCompanyManager() && isSectionInMyCompany(sectionId));
+    }
+
+    match /vehicles/{vehicleId} {
+      allow read: if userExists() && canReadVehicleBySection(resource.data.sectionId);
+      allow create: if userExists() && canManageVehicleBySection(request.resource.data.sectionId);
+      allow update: if userExists() && (
+        canManageVehicleBySection(resource.data.sectionId) ||
+        (canReadVehicleBySection(resource.data.sectionId) && canUpdateVehicleSectionControlFields())
+      );
+      allow delete: if userExists() && canDeleteVehicleBySection(resource.data.sectionId);
+
+      match /parteRelevoDrafts/{draftId} {
+        allow read: if userExists() && canReadVehicleBySection(vehicleSectionId(vehicleId));
+        allow create, update: if userExists() && canManageVehicleBySection(vehicleSectionId(vehicleId));
+        allow delete: if userExists() && canDeleteVehicleBySection(vehicleSectionId(vehicleId));
+      }
+    }
+
+    match /users/{userId} {
+      allow read: if isSuperAdmin() || (isAuthenticated() && request.auth.uid == userId) ||
+        (canManageUsersInMyCompany() && targetUserSameCompany());
+
+      allow create: if isSuperAdmin() ||
+        (canManageUsersInMyCompany() &&
+          request.resource.data.companyId == userCompanyId() &&
+          newUserRoleAllowedForCompanyManager()) ||
+        (isSelfUser(userId) && selfBootstrapRoleAllowed());
+
+      allow update: if (isAuthenticated() && request.auth.uid == userId) || isSuperAdmin() ||
+        (canManageUsersInMyCompany() &&
+          targetUserSameCompany() &&
+          targetUserRoleAllowedForCompanyManager() &&
+          request.resource.data.companyId == userCompanyId() &&
+          newUserRoleAllowedForCompanyManager());
+
+      allow delete: if isSuperAdmin() ||
+        (canManageUsersInMyCompany() &&
+          targetUserSameCompany() &&
+          targetUserRoleAllowedForCompanyManager());
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if userExists();
+      allow update, delete: if false;
+    }
+
+    match /securityAuditLogs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if userExists();
+      allow update, delete: if false;
+    }
+
+    match /logs/{logId} {
+      allow read: if isSuperAdmin();
+      allow create: if userExists();
+      allow update, delete: if false;
+    }
+
+    match /appConfig/{configId} {
+      allow read: if configId == 'global';
+      allow create, update, delete: if configId == 'global' && isSuperAdmin();
+    }
+
+    match /units/{unitId} {
+      allow read, create, update, delete: if isSuperAdmin();
+
+      match /companies/{companyId} {
+        allow read, create, update, delete: if isSuperAdmin();
+      }
+    }
+
+  }
+}

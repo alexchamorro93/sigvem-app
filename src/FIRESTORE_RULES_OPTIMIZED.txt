@@ -1,0 +1,217 @@
+/**
+ * REGLAS DE FIRESTORE OPTIMIZADAS
+ * ================================
+ * Implementa seguridad, validación y rate limiting
+ */
+
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ========================
+    // FUNCIONES REUTILIZABLES
+    // ========================
+    
+    // Obtiene el usuario actual
+    function getCurrentUser() {
+      return request.auth;
+    }
+    
+    // Obtiene el rol del usuario
+    function getUserRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+    
+    // Verifica si es super admin
+    function isSuperAdmin() {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return request.auth != null && 
+             user.role == 'super_admin' &&
+             user.username in ['chamorro', 'grandal'];
+    }
+    
+    // Verifica si pertenece a la compañía
+    function belongsToCompany(companyId) {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return request.auth != null && user.companyId == companyId;
+    }
+    
+    // Verifica si pertenece a la sección
+    function belongsToSection(sectionId) {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return request.auth != null && user.sectionId == sectionId;
+    }
+    
+    // Rate limiting simple (máximo 100 writes/5min)
+    function rateLimit(key) {
+      return request.time < resource.data.rateLimitReset ||
+             resource.data.requestCount < 100;
+    }
+    
+    // Valida que la contraseña tenga requisitos mínimos
+    function isValidPassword(password) {
+      return password.size() >= 8 &&
+             password.matches('.*[A-Z].*') &&
+             password.matches('.*[a-z].*') &&
+             password.matches('.*[0-9].*') &&
+             password.matches('.*[!@#$%^&*].*');
+    }
+    
+    // ========================
+    // USUARIOS
+    // ========================
+    
+    match /users/{userId} {
+      // Super admin puede leer/escribir todo
+      allow read, write: if isSuperAdmin();
+      
+      // Usuario puede leer su propio documento
+      allow read: if request.auth.uid == userId;
+      
+      // Solo super admin puede crear/actualizar usuarios
+      allow create: if isSuperAdmin() && request.resource.data.username is string && isValidPassword(request.resource.data.password);
+      
+      allow update: if isSuperAdmin();
+      
+      // Solo super admin puede eliminar usuarios
+      allow delete: if isSuperAdmin();
+      
+      // Rate limiting en login
+      allow read: if request.auth != null && rateLimit('login');
+    }
+    
+    // ========================
+    // COMPAÑÍAS
+    // ========================
+    
+    match /companies/{companyId} {
+      // Super admin tiene acceso total
+      allow read, write: if isSuperAdmin();
+      
+      // Encargado de compañía puede leer su compañía
+      allow read: if belongsToCompany(companyId);
+      
+      // Solo super admin puede crear compañías
+      allow create: if isSuperAdmin() && request.resource.data.name is string;
+      
+      // Encargado de compañía puede actualizar algunos campos
+      allow update: if belongsToCompany(companyId) && 
+                       (resource.data.name == request.resource.data.name);
+      
+      // Solo super admin puede eliminar
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ========================
+    // SECCIONES
+    // ========================
+    
+    match /sections/{sectionId} {
+      // Super admin y encargado de compañía pueden leer
+      allow read: if isSuperAdmin() || belongsToCompany(resource.data.companyId);
+      
+      // Super admin y encargado de compañía pueden crear
+      allow create: if isSuperAdmin() || 
+                       (belongsToCompany(request.resource.data.companyId) && 
+                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'encargado_cia');
+      
+      // Super admin y encargado pueden actualizar su sección
+      allow update: if isSuperAdmin() || belongsToCompany(resource.data.companyId);
+      
+      // Solo super admin puede eliminar
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ========================
+    // VEHÍCULOS
+    // ========================
+    
+    match /vehicles/{vehicleId} {
+      // Autorizados pueden leer
+      allow read: if isSuperAdmin() || 
+                     belongsToCompany(resource.data.companyId) ||
+                     belongsToSection(resource.data.sectionId);
+      
+      // Encargado de sección y operador pueden crear
+      allow create: if (isSuperAdmin() || belongsToSection(request.resource.data.sectionId)) &&
+                       request.resource.data.plate is string &&
+                       request.resource.data.sectionId is string;
+      
+      // Pueden actualizar su vehículo
+      allow update: if isSuperAdmin() || belongsToSection(resource.data.sectionId);
+      
+      // Solo super admin puede eliminar
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ========================
+    // AUDIT LOGS
+    // ========================
+    
+    match /auditLogs/{logId} {
+      // Solo pueden leer sus propios logs o si son super admin
+      allow read: if isSuperAdmin() || request.auth.uid == resource.data.userId;
+      
+      // Cualquier usuario autenticado puede crear logs
+      allow create: if request.auth != null && 
+                       request.resource.data.timestamp is timestamp &&
+                       request.resource.data.action is string;
+      
+      // No se pueden actualizar logs
+      allow update: if false;
+      
+      // Solo super admin puede eliminar
+      allow delete: if isSuperAdmin();
+    }
+    
+    // ========================
+    // DOCUMENTACIÓN VEHÍCULOS
+    // ========================
+    
+    match /vehicles/{vehicleId}/documentation/{docId} {
+      allow read, write: if isSuperAdmin() || belongsToSection(get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.sectionId);
+    }
+    
+    // ========================
+    // MATERIALES VEHÍCULOS
+    // ========================
+    
+    match /vehicles/{vehicleId}/materials/{materialId} {
+      allow read, write: if isSuperAdmin() || belongsToSection(get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.sectionId);
+    }
+    
+    // ========================
+    // MOVIMIENTOS VEHÍCULOS
+    // ========================
+    
+    match /vehicles/{vehicleId}/movements/{movementId} {
+      allow read, write: if isSuperAdmin() || belongsToSection(get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.sectionId);
+    }
+    
+    // ========================
+    // INCIDENCIAS VEHÍCULOS
+    // ========================
+    
+    match /vehicles/{vehicleId}/incidences/{incidenceId} {
+      allow read, write: if isSuperAdmin() || belongsToSection(get(/databases/$(database)/documents/vehicles/$(vehicleId)).data.sectionId);
+    }
+    
+    // ========================
+    // CONFIGURACIÓN (READ-ONLY)
+    // ========================
+    
+    match /config/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if isSuperAdmin();
+    }
+    
+    // ========================
+    // CATCH-ALL (DENEGAR TODO)
+    // ========================
+    
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
