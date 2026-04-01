@@ -6784,6 +6784,46 @@ const AppWeb: React.FC = () => {
 
     // USERS MANAGEMENT VIEW - Solo para super_admin
     if (currentUser?.role === 'super_admin' && view === 'users-management') {
+      const usersWithContext = users.map((user) => ({ user, context: resolveUserContext(user) }));
+      const superAdminUsers = usersWithContext.filter(({ user }) => user.role === 'super_admin');
+      const groupedByCompany = usersWithContext
+        .filter(({ user }) => user.role !== 'super_admin')
+        .reduce((acc, item) => {
+          const companyName = item.context.companyName || 'Sin compañía';
+          const key = companyName;
+          if (!acc[key]) {
+            acc[key] = {
+              companyName,
+              unitName: item.context.unitName || 'N/A',
+              companyManagers: [] as Array<{ username: string; sectionName: string }> ,
+              sectionManagers: [] as Array<{ username: string; sectionName: string }> ,
+              operators: [] as Array<{ username: string; sectionName: string }> ,
+              readers: [] as Array<{ username: string; sectionName: string }>
+            };
+          }
+
+          const userEntry = {
+            username: item.user.username,
+            sectionName: item.context.sectionName || 'N/A'
+          };
+
+          if (item.user.role === 'encargado_cia') acc[key].companyManagers.push(userEntry);
+          if (item.user.role === 'encargado_seccion') acc[key].sectionManagers.push(userEntry);
+          if (item.user.role === 'operador') acc[key].operators.push(userEntry);
+          if (item.user.role === 'consulta') acc[key].readers.push(userEntry);
+
+          return acc;
+        }, {} as Record<string, {
+          companyName: string;
+          unitName: string;
+          companyManagers: Array<{ username: string; sectionName: string }>;
+          sectionManagers: Array<{ username: string; sectionName: string }>;
+          operators: Array<{ username: string; sectionName: string }>;
+          readers: Array<{ username: string; sectionName: string }>;
+        }>);
+
+      const companyBreakdown = Object.values(groupedByCompany).sort((a, b) => a.companyName.localeCompare(b.companyName));
+
       return (
         <div className="min-h-screen bg-gray-50 dark:bg-slate-900 flex flex-col transition-colors duration-300">
           <Navbar />
@@ -6794,6 +6834,52 @@ const AppWeb: React.FC = () => {
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div><h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">👥 Gestionar Usuarios</h1><p className="text-gray-600 dark:text-gray-400 mt-1">Total: {users.length} usuarios</p></div>
                 <button onClick={() => { setError(''); if (usersManagementBackView === 'companies-list') { setSelectedCompanyId(null); } setView(usersManagementBackView); }} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-2xl shadow-lg font-bold w-full sm:w-auto">← Volver</button>
+              </div>
+
+              <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 p-6 space-y-4">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white">Desglose por compañía</h2>
+
+                {superAdminUsers.length > 0 && (
+                  <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl p-4">
+                    <p className="text-sm font-bold text-red-800 dark:text-red-300 mb-2">Super Admin</p>
+                    <p className="text-sm text-red-700 dark:text-red-200">{superAdminUsers.map(({ user }) => user.username).join(', ')}</p>
+                  </div>
+                )}
+
+                {companyBreakdown.length === 0 ? (
+                  <p className="text-sm text-gray-600 dark:text-gray-400">No hay usuarios asignados a compañías todavía.</p>
+                ) : (
+                  <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    {companyBreakdown.map((group) => (
+                      <div key={group.companyName} className="border border-gray-200 dark:border-slate-700 rounded-xl p-4 bg-gray-50 dark:bg-slate-700/40 space-y-3">
+                        <div>
+                          <p className="text-base font-bold text-gray-900 dark:text-white">🏢 {group.companyName}</p>
+                          <p className="text-xs text-gray-500 dark:text-gray-400">Unidad: {group.unitName}</p>
+                        </div>
+
+                        <div className="text-sm">
+                          <p className="font-semibold text-purple-700 dark:text-purple-300">Encargado de compañía</p>
+                          <p className="text-gray-700 dark:text-gray-300">{group.companyManagers.length ? group.companyManagers.map((u) => u.username).join(', ') : 'Sin asignar'}</p>
+                        </div>
+
+                        <div className="text-sm">
+                          <p className="font-semibold text-blue-700 dark:text-blue-300">Jefes de sección</p>
+                          <p className="text-gray-700 dark:text-gray-300">{group.sectionManagers.length ? group.sectionManagers.map((u) => `${u.username} (${u.sectionName})`).join(', ') : 'Sin asignar'}</p>
+                        </div>
+
+                        <div className="text-sm">
+                          <p className="font-semibold text-green-700 dark:text-green-300">Operadores</p>
+                          <p className="text-gray-700 dark:text-gray-300">{group.operators.length ? group.operators.map((u) => `${u.username} (${u.sectionName})`).join(', ') : 'Sin asignar'}</p>
+                        </div>
+
+                        <div className="text-sm">
+                          <p className="font-semibold text-gray-700 dark:text-gray-300">Consulta</p>
+                          <p className="text-gray-700 dark:text-gray-300">{group.readers.length ? group.readers.map((u) => `${u.username} (${u.sectionName})`).join(', ') : 'Sin asignar'}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {users.length === 0 ? (
@@ -7261,6 +7347,46 @@ const AppWeb: React.FC = () => {
 
   // USERS MANAGEMENT VIEW - Solo para super_admin
   if (currentUser?.role === 'super_admin' && view === 'users-management') {
+    const usersWithContext = users.map((user) => ({ user, context: resolveUserContext(user) }));
+    const superAdminUsers = usersWithContext.filter(({ user }) => user.role === 'super_admin');
+    const groupedByCompany = usersWithContext
+      .filter(({ user }) => user.role !== 'super_admin')
+      .reduce((acc, item) => {
+        const companyName = item.context.companyName || 'Sin compañía';
+        const key = companyName;
+        if (!acc[key]) {
+          acc[key] = {
+            companyName,
+            unitName: item.context.unitName || 'N/A',
+            companyManagers: [] as Array<{ username: string; sectionName: string }> ,
+            sectionManagers: [] as Array<{ username: string; sectionName: string }> ,
+            operators: [] as Array<{ username: string; sectionName: string }> ,
+            readers: [] as Array<{ username: string; sectionName: string }>
+          };
+        }
+
+        const userEntry = {
+          username: item.user.username,
+          sectionName: item.context.sectionName || 'N/A'
+        };
+
+        if (item.user.role === 'encargado_cia') acc[key].companyManagers.push(userEntry);
+        if (item.user.role === 'encargado_seccion') acc[key].sectionManagers.push(userEntry);
+        if (item.user.role === 'operador') acc[key].operators.push(userEntry);
+        if (item.user.role === 'consulta') acc[key].readers.push(userEntry);
+
+        return acc;
+      }, {} as Record<string, {
+        companyName: string;
+        unitName: string;
+        companyManagers: Array<{ username: string; sectionName: string }>;
+        sectionManagers: Array<{ username: string; sectionName: string }>;
+        operators: Array<{ username: string; sectionName: string }>;
+        readers: Array<{ username: string; sectionName: string }>;
+      }>);
+
+    const companyBreakdown = Object.values(groupedByCompany).sort((a, b) => a.companyName.localeCompare(b.companyName));
+
     return (
       <div className="min-h-screen bg-gray-50 flex flex-col">
         <Navbar />
@@ -7271,6 +7397,52 @@ const AppWeb: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">Gestión de Usuarios</h1>
               <button onClick={() => { setError(''); if (usersManagementBackView === 'companies-list') { setSelectedCompanyId(null); } setView(usersManagementBackView); }} className="text-blue-600 hover:text-blue-800 font-bold w-full sm:w-auto">← Volver</button>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-6 space-y-4">
+              <h2 className="text-xl font-bold text-gray-900">Desglose por compañía</h2>
+
+              {superAdminUsers.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                  <p className="text-sm font-bold text-red-800 mb-2">Super Admin</p>
+                  <p className="text-sm text-red-700">{superAdminUsers.map(({ user }) => user.username).join(', ')}</p>
+                </div>
+              )}
+
+              {companyBreakdown.length === 0 ? (
+                <p className="text-sm text-gray-600">No hay usuarios asignados a compañías todavía.</p>
+              ) : (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  {companyBreakdown.map((group) => (
+                    <div key={group.companyName} className="border border-gray-200 rounded-xl p-4 bg-gray-50 space-y-3">
+                      <div>
+                        <p className="text-base font-bold text-gray-900">🏢 {group.companyName}</p>
+                        <p className="text-xs text-gray-500">Unidad: {group.unitName}</p>
+                      </div>
+
+                      <div className="text-sm">
+                        <p className="font-semibold text-purple-700">Encargado de compañía</p>
+                        <p className="text-gray-700">{group.companyManagers.length ? group.companyManagers.map((u) => u.username).join(', ') : 'Sin asignar'}</p>
+                      </div>
+
+                      <div className="text-sm">
+                        <p className="font-semibold text-blue-700">Jefes de sección</p>
+                        <p className="text-gray-700">{group.sectionManagers.length ? group.sectionManagers.map((u) => `${u.username} (${u.sectionName})`).join(', ') : 'Sin asignar'}</p>
+                      </div>
+
+                      <div className="text-sm">
+                        <p className="font-semibold text-green-700">Operadores</p>
+                        <p className="text-gray-700">{group.operators.length ? group.operators.map((u) => `${u.username} (${u.sectionName})`).join(', ') : 'Sin asignar'}</p>
+                      </div>
+
+                      <div className="text-sm">
+                        <p className="font-semibold text-gray-700">Consulta</p>
+                        <p className="text-gray-700">{group.readers.length ? group.readers.map((u) => `${u.username} (${u.sectionName})`).join(', ') : 'Sin asignar'}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="bg-white rounded-2xl shadow-sm border border-gray-200">
