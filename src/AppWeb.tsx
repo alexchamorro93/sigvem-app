@@ -2536,8 +2536,11 @@ const AppWeb: React.FC = () => {
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 setLoading(true);
+                let isSelfRegistration = false;
+                let createdAuthUser: any = null;
+                let reusedExistingAuthUser = false;
                 try {
-                  const isSelfRegistration = !currentUser;
+                  isSelfRegistration = !currentUser;
                   if (!isSelfRegistration && !guardPermission('create_user', 'No tienes permisos para crear usuarios')) {
                     setLoading(false);
                     return;
@@ -2601,12 +2604,17 @@ const AppWeb: React.FC = () => {
 
                   const encryptedPassword = encryptAES256(newCompanyForm.managerPassword);
                   let createdUid = '';
-                  let createdAuthUser: any = null;
 
                   if (isSelfRegistration) {
-                    const authCredential = await createUserWithEmailAndPassword(auth, userEmail, newCompanyForm.managerPassword).catch((authErr: any) => {
+                    const authCredential = await createUserWithEmailAndPassword(auth, userEmail, newCompanyForm.managerPassword).catch(async (authErr: any) => {
                       if (authErr?.code === 'auth/email-already-in-use') {
-                        setError('El usuario ya existe');
+                        const existingCredential = await signInWithEmailAndPassword(auth, userEmail, newCompanyForm.managerPassword).catch(() => null);
+                        if (existingCredential) {
+                          reusedExistingAuthUser = true;
+                          return existingCredential;
+                        }
+
+                        setError('El usuario ya existe y la contraseña no coincide');
                         return null;
                       }
 
@@ -2640,7 +2648,9 @@ const AppWeb: React.FC = () => {
                       sectionId = sectionSnapshot.docs[0].id;
                       companyId = sectionSnapshot.docs[0].data().companyId || companyId;
                     } else {
-                      await deleteAuthUser(createdAuthUser).catch(() => undefined);
+                      if (!reusedExistingAuthUser) {
+                        await deleteAuthUser(createdAuthUser).catch(() => undefined);
+                      }
                       await signOutAuth(auth).catch(() => undefined);
                       setError('Código de sección no válido');
                       setLoading(false);
@@ -2677,6 +2687,11 @@ const AppWeb: React.FC = () => {
                   alert(isSelfRegistration ? '✅ Usuario creado correctamente. Ahora inicia sesión.' : '✅ Usuario creado correctamente');
                   setLoading(false);
                 } catch (err: any) {
+                  if (isSelfRegistration && createdAuthUser && !reusedExistingAuthUser) {
+                    await deleteAuthUser(createdAuthUser).catch(() => undefined);
+                    await signOutAuth(auth).catch(() => undefined);
+                  }
+
                   if (err?.code === 'permission-denied') {
                     setError('Permisos insuficientes para crear usuario con tu rol actual');
                   } else {
@@ -3696,6 +3711,8 @@ const AppWeb: React.FC = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    let createdAuthUser: any = null;
+    let reusedExistingAuthUser = false;
     if (!registerForm.username || !registerForm.password || !registerForm.passwordConfirm) {
       setError('Completa todos los campos obligatorios');
       setLoading(false);
@@ -3745,9 +3762,15 @@ const AppWeb: React.FC = () => {
       const savedPassword = registerForm.password;
       const email = toAuthEmail(savedUsername);
 
-      const authCredential = await createUserWithEmailAndPassword(auth, email, savedPassword).catch((authErr: any) => {
+      const authCredential = await createUserWithEmailAndPassword(auth, email, savedPassword).catch(async (authErr: any) => {
         if (authErr?.code === 'auth/email-already-in-use') {
-          setError('El usuario ya existe');
+          const existingCredential = await signInWithEmailAndPassword(auth, email, savedPassword).catch(() => null);
+          if (existingCredential) {
+            reusedExistingAuthUser = true;
+            return existingCredential;
+          }
+
+          setError('El usuario ya existe y la contraseña no coincide');
           return null;
         }
 
@@ -3766,13 +3789,16 @@ const AppWeb: React.FC = () => {
       }
 
       const createdUid = authCredential.user.uid;
+      createdAuthUser = authCredential.user;
       await ensureAuthTokenReady(authCredential.user);
 
       const sectionsQuery = query(collection(db, 'sections'), where('accessCode', '==', registerForm.accessCode.trim()));
       const sectionDocs = await getDocs(sectionsQuery);
 
       if (sectionDocs.empty) {
-        await deleteAuthUser(authCredential.user).catch(() => undefined);
+        if (!reusedExistingAuthUser) {
+          await deleteAuthUser(authCredential.user).catch(() => undefined);
+        }
         await signOutAuth(auth).catch(() => undefined);
         setError('Código de acceso no válido');
         setLoading(false);
@@ -3835,6 +3861,15 @@ const AppWeb: React.FC = () => {
       setLoginUsername(savedUsername);
       setLoginPassword(savedPassword);
     } catch (err: any) {
+      try {
+        if (createdAuthUser && !reusedExistingAuthUser) {
+          await deleteAuthUser(createdAuthUser).catch(() => undefined);
+          await signOutAuth(auth).catch(() => undefined);
+        }
+      } catch {
+        // no-op
+      }
+
       console.error('[handleRegister] ERROR:', err);
       console.error('[handleRegister] Mensaje:', err.message);
       console.error('[handleRegister] Código:', err.code);
