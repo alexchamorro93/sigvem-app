@@ -886,19 +886,36 @@ const AppWeb: React.FC = () => {
     await new Promise((resolve) => setTimeout(resolve, 500));
   };
 
+  const waitForAuthSession = async (expectedUid?: string) => {
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const activeUser = auth.currentUser;
+      if (activeUser && (!expectedUid || activeUser.uid === expectedUid)) {
+        await ensureAuthTokenReady(activeUser);
+        return activeUser;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+
+    const fallbackUser = auth.currentUser;
+    if (fallbackUser) {
+      await ensureAuthTokenReady(fallbackUser);
+    }
+    return fallbackUser;
+  };
+
   const runWithAuthRetry = async <T,>(operation: () => Promise<T>, firebaseUser?: any): Promise<T> => {
     let lastError: any = null;
-    for (let attempt = 0; attempt < 4; attempt += 1) {
+    for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
         return await operation();
       } catch (err: any) {
         lastError = err;
-        if (err?.code !== 'permission-denied' || attempt === 3) {
+        if (err?.code !== 'permission-denied' || attempt === 5) {
           throw err;
         }
 
         await ensureAuthTokenReady(firebaseUser || auth.currentUser);
-        await new Promise((resolve) => setTimeout(resolve, 400 + attempt * 250));
+        await new Promise((resolve) => setTimeout(resolve, 500 + attempt * 350));
       }
     }
 
@@ -2694,6 +2711,7 @@ const AppWeb: React.FC = () => {
 
                     createdUid = authCredential.user.uid;
                     createdAuthUser = authCredential.user;
+                    await waitForAuthSession(createdUid);
                     await ensureAuthTokenReady(authCredential.user);
                   } else {
                     createdUid = await createAuthUserWithoutSwitchingSession(userEmail, newCompanyForm.managerPassword);
@@ -3869,6 +3887,7 @@ const AppWeb: React.FC = () => {
 
       const createdUid = authCredential.user.uid;
       createdAuthUser = authCredential.user;
+      await waitForAuthSession(createdUid);
       await ensureAuthTokenReady(authCredential.user);
 
       const sectionsQuery = query(collection(db, 'sections'), where('accessCode', '==', registerForm.accessCode.trim()));
