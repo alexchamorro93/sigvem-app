@@ -2709,10 +2709,11 @@ const AppWeb: React.FC = () => {
                       return;
                     }
 
-                    createdUid = authCredential.user.uid;
-                    createdAuthUser = authCredential.user;
+                    const freshCredential = await signInWithEmailAndPassword(auth, userEmail, newCompanyForm.managerPassword).catch(() => authCredential);
+                    createdUid = freshCredential.user.uid;
+                    createdAuthUser = freshCredential.user;
                     await waitForAuthSession(createdUid);
-                    await ensureAuthTokenReady(authCredential.user);
+                    await ensureAuthTokenReady(freshCredential.user);
                   } else {
                     createdUid = await createAuthUserWithoutSwitchingSession(userEmail, newCompanyForm.managerPassword);
                   }
@@ -3885,10 +3886,11 @@ const AppWeb: React.FC = () => {
         return;
       }
 
-      const createdUid = authCredential.user.uid;
-      createdAuthUser = authCredential.user;
+      const freshCredential = await signInWithEmailAndPassword(auth, email, savedPassword).catch(() => authCredential);
+      const createdUid = freshCredential.user.uid;
+      createdAuthUser = freshCredential.user;
       await waitForAuthSession(createdUid);
-      await ensureAuthTokenReady(authCredential.user);
+      await ensureAuthTokenReady(freshCredential.user);
 
       const sectionsQuery = query(collection(db, 'sections'), where('accessCode', '==', registerForm.accessCode.trim()));
       const sectionDocs = await runWithAuthRetry(() => getDocs(sectionsQuery), createdAuthUser);
