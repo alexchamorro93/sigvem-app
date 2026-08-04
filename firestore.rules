@@ -1,4 +1,5 @@
 rules_version = '2';
+// Rules updated: added encargado_vehiculos role - 2026-04-14
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -26,6 +27,10 @@ service cloud.firestore {
       return userDoc().data.sectionId;
     }
 
+    function userUnitId() {
+      return userDoc().data.unitId;
+    }
+
     function isSuperAdmin() {
       return userExists() && userRole() == 'super_admin';
     }
@@ -42,6 +47,19 @@ service cloud.firestore {
       return userExists() && userRole() == 'operador';
     }
 
+    function isS4() {
+      return userExists() && userRole() == 's4';
+    }
+
+    function isVehicleManager() {
+      return userExists() && userRole() == 'encargado_vehiculos';
+    }
+
+    function isCompanyInMyUnit(companyId) {
+      return userExists() && userUnitId() != null
+        && exists(/databases/$(database)/documents/units/$(userUnitId())/companies/$(companyId));
+    }
+
     function isSectionInMyCompany(sectionId) {
       return userExists() &&
         exists(/databases/$(database)/documents/sections/$(sectionId)) &&
@@ -51,7 +69,9 @@ service cloud.firestore {
     function canReadCompany(companyId) {
       return isSuperAdmin() ||
         (userExists() && userCompanyId() == companyId) ||
-        (userExists() && userSectionId() != null && isSectionInMyCompany(userSectionId()));
+        (userExists() && userSectionId() != null && isSectionInMyCompany(userSectionId())) ||
+        (isS4() && isCompanyInMyUnit(companyId)) ||
+        (isVehicleManager() && userCompanyId() == companyId);
     }
 
     function canManageCompany(companyId) {
@@ -62,13 +82,21 @@ service cloud.firestore {
       return isSuperAdmin() ||
         (userExists() && userSectionId() == sectionId) ||
         (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (isVehicleManager() && isSectionInMyCompany(sectionId)) ||
+        (isS4() && exists(/databases/$(database)/documents/sections/$(sectionId)) &&
+          isCompanyInMyUnit(get(/databases/$(database)/documents/sections/$(sectionId)).data.companyId)) ||
         (userExists() && userDoc().data.accessCode != null && resource.data.accessCode == userDoc().data.accessCode);
     }
 
     function canManageSection(sectionId) {
       return isSuperAdmin() ||
         (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (isVehicleManager() && isSectionInMyCompany(sectionId)) ||
         (isSectionManager() && userSectionId() == sectionId);
+    }
+
+    function canUpdateSectionAvisosOnly() {
+      return request.resource.data.diff(resource.data).changedKeys().hasOnly(['avisosState']);
     }
 
     function canReadVehicleBySection(sectionId) {
@@ -78,6 +106,7 @@ service cloud.firestore {
     function canManageVehicleBySection(sectionId) {
       return isSuperAdmin() ||
         (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (isVehicleManager() && isSectionInMyCompany(sectionId)) ||
         (isSectionManager() && userSectionId() == sectionId) ||
         (isOperator() && userSectionId() == sectionId);
     }
@@ -85,6 +114,7 @@ service cloud.firestore {
     function canDeleteVehicleBySection(sectionId) {
       return isSuperAdmin() ||
         (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (isVehicleManager() && isSectionInMyCompany(sectionId)) ||
         (isSectionManager() && userSectionId() == sectionId);
     }
 
@@ -95,6 +125,35 @@ service cloud.firestore {
         'lastModifiedBy',
         'lastModifiedAt'
       ]);
+    }
+
+    function canParticipateInTransfer(transferData) {
+      return userExists() && userSectionId() != null && transferData.participantSectionIds.hasAny([userSectionId()]);
+    }
+
+    function canDeleteVehicleViaConfirmedTransfer(vehicleId) {
+      return exists(/databases/$(database)/documents/vehicleTransfers/$(vehicleId))
+        && get(/databases/$(database)/documents/vehicleTransfers/$(vehicleId)).data.sourceVehicleId == vehicleId
+        && get(/databases/$(database)/documents/vehicleTransfers/$(vehicleId)).data.sourceConfirmed == true
+        && get(/databases/$(database)/documents/vehicleTransfers/$(vehicleId)).data.destinationConfirmed == true
+        && (
+          isSuperAdmin()
+          || canParticipateInTransfer(get(/databases/$(database)/documents/vehicleTransfers/$(vehicleId)).data)
+        );
+    }
+
+    function canDeleteCopiedVehicleViaTransferCancellation() {
+      return resource.data.transferSourceVehicleId != null
+        && exists(/databases/$(database)/documents/vehicleTransfers/$(resource.data.transferSourceVehicleId))
+        && get(/databases/$(database)/documents/vehicleTransfers/$(resource.data.transferSourceVehicleId)).data.copiedVehicleId == resource.id
+        && (
+          get(/databases/$(database)/documents/vehicleTransfers/$(resource.data.transferSourceVehicleId)).data.status == 'pending_confirmation'
+          || get(/databases/$(database)/documents/vehicleTransfers/$(resource.data.transferSourceVehicleId)).data.status == 'cancelled'
+        )
+        && (
+          isSuperAdmin()
+          || canParticipateInTransfer(get(/databases/$(database)/documents/vehicleTransfers/$(resource.data.transferSourceVehicleId)).data)
+        );
     }
 
     function vehicleSectionId(vehicleId) {
@@ -113,6 +172,34 @@ service cloud.firestore {
       return request.resource.data.role in ['consulta', 'operador', 'encargado_seccion'];
     }
 
+    // El alta propia (self-bootstrap) SIEMPRE debe crear el usuario sin
+    // compañía/sección asignada; se une a una sección después mediante
+    // selfSectionJoinAllowed(), validando el código de acceso en servidor.
+    function selfBootstrapHasNoCompanySection() {
+      return request.resource.data.companyId == null && request.resource.data.sectionId == null;
+    }
+
+    function selfKeepsSameRole() {
+      return request.resource.data.role == resource.data.role;
+    }
+
+    function selfCompanySectionUnchanged() {
+      return request.resource.data.companyId == resource.data.companyId &&
+        request.resource.data.sectionId == resource.data.sectionId;
+    }
+
+    // Permite que un usuario recién creado (companyId/sectionId aún null)
+    // se una a la sección cuyo accessCode coincide con el que él mismo
+    // guardó al registrarse. companyId debe coincidir con el de esa sección.
+    function selfSectionJoinAllowed() {
+      return resource.data.companyId == null && resource.data.sectionId == null &&
+        resource.data.accessCode != null &&
+        request.resource.data.sectionId != null &&
+        exists(/databases/$(database)/documents/sections/$(request.resource.data.sectionId)) &&
+        get(/databases/$(database)/documents/sections/$(request.resource.data.sectionId)).data.accessCode == resource.data.accessCode &&
+        request.resource.data.companyId == get(/databases/$(database)/documents/sections/$(request.resource.data.sectionId)).data.companyId;
+    }
+
     function targetUserSameCompany() {
       return resource.data.companyId == userCompanyId();
     }
@@ -125,6 +212,15 @@ service cloud.firestore {
       return request.resource.data.role in ['consulta', 'operador', 'encargado_seccion'];
     }
 
+    function canAccessChatRoom(roomId) {
+      return isSuperAdmin() ||
+        (userExists() && userSectionId() == roomId) ||
+        (isCompanyManager() && isSectionInMyCompany(roomId)) ||
+        (isVehicleManager() && isSectionInMyCompany(roomId)) ||
+        (isS4() && exists(/databases/$(database)/documents/sections/$(roomId)) &&
+          isCompanyInMyUnit(get(/databases/$(database)/documents/sections/$(roomId)).data.companyId));
+    }
+
     match /companies/{companyId} {
       allow read: if userExists() && canReadCompany(companyId);
       allow create: if isSuperAdmin();
@@ -133,20 +229,38 @@ service cloud.firestore {
     }
 
     match /sections/{sectionId} {
-      allow read: if (userExists() && canReadSection(sectionId)) || (isAuthenticated() && !userExists());
-      allow create: if isSuperAdmin() || isCompanyManager();
-      allow update: if userExists() && canManageSection(sectionId);
-      allow delete: if isSuperAdmin() || (isCompanyManager() && isSectionInMyCompany(sectionId));
+      allow read: if (userExists() && (
+        isSuperAdmin() ||
+        (userSectionId() == sectionId) ||
+        (isCompanyManager() && isSectionInMyCompany(sectionId)) ||
+        (isVehicleManager() && isSectionInMyCompany(sectionId)) ||
+        (isS4() && resource.data.companyId != null && isCompanyInMyUnit(resource.data.companyId)) ||
+        (userDoc().data.accessCode != null && resource.data.accessCode == userDoc().data.accessCode)
+      )) || (isAuthenticated() && !userExists());
+      allow create: if isSuperAdmin() || isCompanyManager() || isVehicleManager();
+      allow update: if userExists() && (
+        canManageSection(sectionId) ||
+        (canReadSection(sectionId) && canUpdateSectionAvisosOnly())
+      );
+      allow delete: if isSuperAdmin() || (isCompanyManager() && isSectionInMyCompany(sectionId)) || (isVehicleManager() && isSectionInMyCompany(sectionId));
     }
 
     match /vehicles/{vehicleId} {
-      allow read: if userExists() && canReadVehicleBySection(resource.data.sectionId);
+      allow read: if userExists() && (
+        canReadVehicleBySection(resource.data.sectionId) ||
+        (isS4() && resource.data.sectionId != null &&
+          isCompanyInMyUnit(get(/databases/$(database)/documents/sections/$(resource.data.sectionId)).data.companyId))
+      );
       allow create: if userExists() && canManageVehicleBySection(request.resource.data.sectionId);
       allow update: if userExists() && (
         canManageVehicleBySection(resource.data.sectionId) ||
         (canReadVehicleBySection(resource.data.sectionId) && canUpdateVehicleSectionControlFields())
       );
-      allow delete: if userExists() && canDeleteVehicleBySection(resource.data.sectionId);
+      allow delete: if userExists() && (
+        canDeleteVehicleBySection(resource.data.sectionId)
+        || canDeleteVehicleViaConfirmedTransfer(vehicleId)
+        || canDeleteCopiedVehicleViaTransferCancellation()
+      );
 
       match /parteRelevoDrafts/{draftId} {
         allow read: if userExists() && canReadVehicleBySection(vehicleSectionId(vehicleId));
@@ -155,22 +269,48 @@ service cloud.firestore {
       }
     }
 
+    match /vehicleTransfers/{transferId} {
+      allow read: if userExists() && (
+        isSuperAdmin()
+        || canParticipateInTransfer(resource.data)
+      );
+
+      allow create: if userExists()
+        && request.resource.data.sourceVehicleId == transferId
+        && canManageVehicleBySection(request.resource.data.sourceSectionId);
+
+      allow update: if userExists() && (
+        isSuperAdmin()
+        || canParticipateInTransfer(resource.data)
+      );
+
+      allow delete: if userExists() && (
+        isSuperAdmin()
+        || userDoc().data.username == resource.data.createdBy
+        || canParticipateInTransfer(resource.data)
+      );
+    }
+
     match /users/{userId} {
       allow read: if isSuperAdmin() || (isAuthenticated() && request.auth.uid == userId) ||
-        (canManageUsersInMyCompany() && targetUserSameCompany());
+        (canManageUsersInMyCompany() && targetUserSameCompany()) ||
+        (isVehicleManager() && targetUserSameCompany());
 
       allow create: if isSuperAdmin() ||
         (canManageUsersInMyCompany() &&
           request.resource.data.companyId == userCompanyId() &&
-          newUserRoleAllowedForCompanyManager()) ||
-        (isSelfUser(userId) && selfBootstrapRoleAllowed());
+          newUserRoleAllowedForCompanyManager() &&
+          request.resource.data.role != 's4') ||
+        (isSelfUser(userId) && selfBootstrapRoleAllowed() && selfBootstrapHasNoCompanySection());
 
-      allow update: if (isAuthenticated() && request.auth.uid == userId) || isSuperAdmin() ||
+      allow update: if (isAuthenticated() && request.auth.uid == userId && selfKeepsSameRole() &&
+          (selfCompanySectionUnchanged() || selfSectionJoinAllowed())) || isSuperAdmin() ||
         (canManageUsersInMyCompany() &&
           targetUserSameCompany() &&
           targetUserRoleAllowedForCompanyManager() &&
           request.resource.data.companyId == userCompanyId() &&
-          newUserRoleAllowedForCompanyManager());
+          newUserRoleAllowedForCompanyManager() &&
+          request.resource.data.role != 's4');
 
       allow delete: if isSuperAdmin() ||
         (canManageUsersInMyCompany() &&
@@ -201,11 +341,45 @@ service cloud.firestore {
       allow create, update, delete: if configId == 'global' && isSuperAdmin();
     }
 
+    match /featureProposals/{proposalId} {
+      allow create: if userExists();
+      allow read: if isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
+    }
+
+    match /appAnnouncements/{announcementId} {
+      allow read: if userExists();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /sectionChats/{chatId} {
+      allow read: if userExists() && canAccessChatRoom(resource.data.roomId);
+      allow create: if userExists()
+        && request.resource.data.fromUserId == request.auth.uid
+        && canAccessChatRoom(request.resource.data.roomId);
+      allow delete: if userExists() && (
+        isSuperAdmin() ||
+        resource.data.fromUserId == request.auth.uid
+      );
+      allow update: if false;
+    }
+
+    match /parteCarga/{sectionId} {
+      allow read: if userExists() && canReadSection(sectionId);
+      allow create, update: if userExists() && (
+        canManageSection(sectionId) ||
+        (isOperator() && userSectionId() == sectionId)
+      );
+      allow delete: if userExists() && canManageSection(sectionId);
+    }
+
     match /units/{unitId} {
-      allow read, create, update, delete: if isSuperAdmin();
+      allow read: if isSuperAdmin() || (isS4() && userUnitId() == unitId);
+      allow create, update, delete: if isSuperAdmin();
 
       match /companies/{companyId} {
-        allow read, create, update, delete: if isSuperAdmin();
+        allow read: if isSuperAdmin() || (isS4() && userUnitId() == unitId);
+        allow create, update, delete: if isSuperAdmin();
       }
     }
 
