@@ -20,7 +20,7 @@ export type LogSeverity = 'INFO' | 'WARNING' | 'CRITICAL';
 export type MaintenanceStatus = 'BIEN' | 'BAJO' | 'none';
 
 // Estados de vista (UI) - v2
-export type ViewState = 'login' | 'register' | 'units' | 'companies-menu' | 'companies-list' | 'company-detail' | 'sections-menu' | 'section-detail' | 'vehicles-list' | 'vehicle-detail' | 'users-management' | 'audit-log' | 'dashboard' | 'reports' | 'settings' | 'parte-relevo-form' | 'security-guide' | 'cleanup-test-data' | 'audit-report' | 'list' | 'detail' | 'admin-dashboard' | 'operators' | 'add' | 'info' | 'doc-section' | 'maintenance' | 'incidencias' | 'material-vehiculo' | 'movimientos' | 'material-actual-menu' | 'material-category-detail' | 'material-sigle' | 'archive' | 'parte-relevo';
+export type ViewState = 'login' | 'register' | 'units' | 'companies-menu' | 'companies-list' | 'company-detail' | 'sections-menu' | 'section-detail' | 'vehicle-transfer' | 'vehicles-list' | 'vehicle-detail' | 'users-management' | 'audit-log' | 'dashboard' | 'reports' | 'settings' | 'feedback' | 'parte-relevo-form' | 'security-guide' | 'cleanup-test-data' | 'audit-report' | 'list' | 'detail' | 'admin-dashboard' | 'operators' | 'add' | 'info' | 'doc-section' | 'maintenance' | 'incidencias' | 'material-vehiculo' | 'movimientos' | 'material-actual-menu' | 'material-category-detail' | 'material-sigle' | 'archive' | 'parte-relevo' | 's4-dashboard' | 's4-audit-report' | 's4-global-itvs' | 'cia-overview';
 
 // =========================
 // Interfaces
