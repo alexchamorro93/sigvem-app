@@ -162,6 +162,28 @@ export const MILITARY_ROLES: Record<string, MilitaryRole> = {
     level: 2,
     classification: ClassificationLevel.RESTRICTED,
     permissions: ['read:section', 'read:vehicles']
+  },
+  s4: {
+    role: 's4',
+    level: 4,
+    classification: ClassificationLevel.CONFIDENTIAL,
+    permissions: ['read:unit', 'read:company', 'read:section', 'read:vehicles']
+  },
+  encargado_vehiculos: {
+    role: 'encargado_vehiculos',
+    level: 4,
+    classification: ClassificationLevel.CONFIDENTIAL,
+    permissions: [
+      'read:company',
+      'read:section',
+      'write:section',
+      'manage:sections',
+      'read:vehicles',
+      'create:vehicles',
+      'edit:vehicles',
+      'delete:vehicles',
+      'manage:vehicles'
+    ]
   }
 };
 
@@ -287,15 +309,34 @@ export const generateCSRFToken = (): string => {
 };
 
 /**
- * Valida un CSRF token
+ * Valida un CSRF token usando comparación en tiempo constante.
+ * Evita timing attacks donde un atacante mide el tiempo de respuesta
+ * para deducir cuántos caracteres del token son correctos.
  */
 export const validateCSRFToken = (token: string, storedToken: string): boolean => {
-  return token === storedToken && token !== '' && storedToken !== '';
+  if (!token || !storedToken || token.length !== storedToken.length) return false;
+  // Comparación byte a byte sin cortocircuito
+  let diff = 0;
+  for (let i = 0; i < token.length; i++) {
+    diff |= token.charCodeAt(i) ^ storedToken.charCodeAt(i);
+  }
+  return diff === 0;
 };
 
 // ============================================================
 // RATE LIMITING Y PROTECCIÓN CONTRA FUERZA BRUTA
 // ============================================================
+// Los contadores se persisten en localStorage para que no se reseteen
+// con un simple F5 (bypass habitual de atacantes junior).
+// Se implementan dos capas:
+//   1. Por usuario  → bloquea ataques dirigidos (credential stuffing)
+//   2. Por dispositivo → bloquea spray attacks (muchos usuarios distintos)
+
+const RL_USER_PREFIX = 'SIGVEM_RL_U_';
+const RL_DEVICE_KEY  = 'SIGVEM_RL_DEV';
+const DEVICE_MAX_ATTEMPTS = 20;    // intentos fallidos totales antes de bloquear el dispositivo
+const DEVICE_WINDOW_MS     = 60 * 60 * 1000; // ventana de 1 hora
+const DEVICE_LOCKOUT_MS    = 30 * 60 * 1000; // bloqueo de dispositivo: 30 min
 
 interface LoginAttempt {
   attempts: number;
@@ -304,65 +345,121 @@ interface LoginAttempt {
   lockedUntil: number;
 }
 
-const loginAttempts = new Map<string, LoginAttempt>();
+function _rlRead(key: string): LoginAttempt {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) return JSON.parse(raw) as LoginAttempt;
+  } catch { /* localStorage no disponible o JSON inválido */ }
+  return { attempts: 0, lastAttempt: 0, locked: false, lockedUntil: 0 };
+}
+
+function _rlWrite(key: string, data: LoginAttempt): void {
+  try { localStorage.setItem(key, JSON.stringify(data)); } catch { /* ignorar */ }
+}
+
+function _rlClear(key: string): void {
+  try { localStorage.removeItem(key); } catch { /* ignorar */ }
+}
 
 /**
- * Registra un intento de login fallido
+ * Registra un intento de login fallido (por usuario).
+ * @returns false si la cuenta debe quedar bloqueada tras este intento.
  */
 export const recordFailedLoginAttempt = (username: string): boolean => {
   const now = Date.now();
-  const attempt = loginAttempts.get(username) || {
-    attempts: 0,
-    lastAttempt: now,
-    locked: false,
-    lockedUntil: 0
-  };
+  const key = RL_USER_PREFIX + username.toLowerCase();
+  const attempt = _rlRead(key);
 
-  // Si estaba bloqueado, verificar si expirió el bloqueo
+  // Expiró el bloqueo anterior → reiniciar
   if (attempt.locked && now > attempt.lockedUntil) {
     attempt.locked = false;
     attempt.attempts = 0;
   }
 
-  // Si sigue bloqueado, rechazar
-  if (attempt.locked) {
-    return false;
-  }
+  if (attempt.locked) return false;
 
   attempt.attempts++;
   attempt.lastAttempt = now;
 
-  // Si excede intentos, bloquear
   if (attempt.attempts >= MAX_LOGIN_ATTEMPTS) {
     attempt.locked = true;
     attempt.lockedUntil = now + LOCKOUT_DURATION_MS;
   }
 
-  loginAttempts.set(username, attempt);
+  _rlWrite(key, attempt);
+
+  // Registrar también en el contador de dispositivo (spray detection)
+  _recordDeviceFailure(now);
+
   return !attempt.locked;
 };
 
 /**
- * Borra los intentos fallidos después de login exitoso
+ * Borra los intentos fallidos después de login exitoso.
  */
 export const clearLoginAttempts = (username: string): void => {
-  loginAttempts.delete(username);
+  _rlClear(RL_USER_PREFIX + username.toLowerCase());
 };
 
 /**
- * Verifica si un usuario está bloqueado por intentos fallidos
+ * Verifica si un usuario está bloqueado por intentos fallidos.
  */
 export const isAccountLocked = (username: string): boolean => {
-  const attempt = loginAttempts.get(username);
-  if (!attempt) return false;
-  
   const now = Date.now();
-  if (attempt.locked && now > attempt.lockedUntil) {
-    loginAttempts.delete(username);
+  const key = RL_USER_PREFIX + username.toLowerCase();
+  const attempt = _rlRead(key);
+
+  if (!attempt.locked) return false;
+
+  if (now > attempt.lockedUntil) {
+    _rlClear(key);
     return false;
   }
-  
-  return attempt.locked;
+  return true;
+};
+
+/**
+ * Registra un fallo en el contador global del dispositivo (spray attack).
+ */
+function _recordDeviceFailure(now: number): void {
+  const dev = _rlRead(RL_DEVICE_KEY);
+
+  // Si el bloqueo expiró, reiniciar
+  if (dev.locked && now > dev.lockedUntil) {
+    _rlWrite(RL_DEVICE_KEY, { attempts: 1, lastAttempt: now, locked: false, lockedUntil: 0 });
+    return;
+  }
+
+  // Ventana deslizante: si el primer fallo fue hace más de DEVICE_WINDOW_MS, reiniciar contador
+  if (!dev.locked && (now - dev.lastAttempt) > DEVICE_WINDOW_MS) {
+    _rlWrite(RL_DEVICE_KEY, { attempts: 1, lastAttempt: now, locked: false, lockedUntil: 0 });
+    return;
+  }
+
+  dev.attempts++;
+  dev.lastAttempt = now;
+
+  if (!dev.locked && dev.attempts >= DEVICE_MAX_ATTEMPTS) {
+    dev.locked = true;
+    dev.lockedUntil = now + DEVICE_LOCKOUT_MS;
+  }
+
+  _rlWrite(RL_DEVICE_KEY, dev);
+}
+
+/**
+ * Verifica si este dispositivo está bloqueado por spray attack.
+ * Debe llamarse ANTES de cualquier intento de login.
+ */
+export const isDeviceLocked = (): boolean => {
+  const now = Date.now();
+  const dev = _rlRead(RL_DEVICE_KEY);
+  if (!dev.locked) return false;
+  if (now > dev.lockedUntil) {
+    _rlClear(RL_DEVICE_KEY);
+    return false;
+  }
+  return true;
 };
 
 // ============================================================
@@ -395,17 +492,14 @@ export const getDeviceInfo = (): Omit<DeviceInfo, 'ip'> => {
 };
 
 /**
- * Obtiene la IP del cliente (requiere backend)
+ * Obtiene la IP del cliente.
+ * En modo intranet no se llama a servicios externos.
+ * Devuelve 'intranet' si no está disponible.
  */
 export const getUserIP = async (): Promise<string> => {
-  try {
-    const response = await fetch('https://api.ipify.org?format=json');
-    const data = await response.json();
-    return data.ip;
-  } catch (error) {
-    console.warn('[SECURITY] No se pudo obtener IP:', error);
-    return 'unknown';
-  }
+  // No se usa api.ipify.org ni ningún servicio externo para evitar
+  // filtraciones de datos en entornos de intranet.
+  return 'intranet';
 };
 
 // ============================================================
@@ -421,30 +515,38 @@ export const isValidEmail = (email: string): boolean => {
 };
 
 /**
- * Sanitiza strings para prevenir XSS
+ * Sanitiza un string eliminando etiquetas HTML y caracteres de control.
+ * Devuelve texto plano seguro para mostrar en la UI y almacenar en BD.
  */
 export const sanitizeInput = (input: string): string => {
-  const div = document.createElement('div');
-  div.textContent = input;
-  return div.innerHTML;
+  if (typeof input !== 'string') return '';
+  // 1. Eliminar etiquetas HTML (evitar XSS si el valor se usa en innerHTML)
+  const noTags = input.replace(/<[^>]*>/g, '');
+  // 2. Eliminar caracteres de control (excepto espacios normales)
+  // eslint-disable-next-line no-control-regex
+  const noControl = noTags.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+  // 3. Truncar a longitud máxima razonable para evitar DoS por entradas enormes
+  return noControl.slice(0, 1000);
 };
 
 /**
- * Valida contraseña con requisitos militares
+ * Valida contraseña con requisitos militares.
+ * Incluye límite máximo para prevenir DoS por contraseñas enormes.
  */
 export const validateMilitaryPassword = (password: string): {
   valid: boolean;
   errors: string[];
 } => {
   const errors: string[] = [];
-  
+
+  if (password.length > 128) errors.push('La contraseña no puede superar 128 caracteres');
   if (password.length < 12) errors.push('Mínimo 12 caracteres');
   if (!/[A-Z]/.test(password)) errors.push('Requiere mayúscula');
   if (!/[a-z]/.test(password)) errors.push('Requiere minúscula');
   if (!/[0-9]/.test(password)) errors.push('Requiere número');
   if (!/[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?]/.test(password)) errors.push('Requiere carácter especial');
-  if (/(.)\1{2,}/.test(password)) errors.push('No puede tener 3+ caracteres iguales');
-  
+  if (/(.)\1{2,}/.test(password)) errors.push('No puede tener 3+ caracteres iguales consecutivos');
+
   return {
     valid: errors.length === 0,
     errors
@@ -452,14 +554,40 @@ export const validateMilitaryPassword = (password: string): {
 };
 
 /**
- * Valida que no sea contraseña común
+ * Detecta contraseñas comunes y predecibles.
+ * Lista extendida con patrones habituales en entornos corporativos/militares.
  */
 export const isCommonPassword = (password: string): boolean => {
-  const commonPasswords = [
-    'Password123!', 'Admin123!', 'Usuario123!', 'Temporal123!',
-    '123456!', 'Qwerty123!', 'System123!', 'Militar123!'
-  ];
-  return commonPasswords.includes(password);
+  const lower = password.toLowerCase();
+  const commonPasswords = new Set([
+    // Genéricas
+    'password', 'password1', 'password123', 'password123!',
+    'pass1234', 'pass@1234', 'p@ssword', 'p@ssw0rd',
+    // Teclado
+    'qwerty', 'qwerty123', 'qwerty123!', 'qwerty@123',
+    '123456', '1234567', '12345678', '123456789', '1234567890',
+    '111111', '000000', 'abc123', 'abc123!',
+    // Administración
+    'admin', 'admin123', 'admin123!', 'admin@123',
+    'administrator', 'root', 'root123', 'root@123',
+    'superuser', 'sysadmin', 'system', 'system123!',
+    // Español
+    'usuario', 'usuario123', 'usuario123!',
+    'temporal', 'temporal123', 'temporal123!',
+    'bienvenido', 'bienvenido1', 'bienvenido123!',
+    'cambiar', 'cambiame', 'cambia123',
+    // Militares / corporativos comunes
+    'militar', 'militar123', 'militar123!',
+    'ejercito', 'ejercito1', 'ejercito123!',
+    'sigvem', 'sigvem123', 'sigvem123!',
+    'otan', 'otan1234', 'nato1234',
+    'secreto', 'secreto1', 'secreto123',
+    'seguridad', 'seguridad1',
+    // Patrones de año
+    'welcome2024', 'welcome2025', 'welcome2026',
+    'inicio2024', 'inicio2025', 'inicio2026',
+  ]);
+  return commonPasswords.has(lower);
 };
 
 // ============================================================
@@ -481,10 +609,14 @@ export interface SecurityAuditLog {
 }
 
 /**
- * Genera un ID único para auditoria
+ * Genera un ID único para auditoría usando crypto.getRandomValues.
+ * Math.random() no es criptográficamente seguro y puede predecirse.
  */
 export const generateAuditId = (): string => {
-  return `AUDIT-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return `AUDIT-${Date.now()}-${hex}`;
 };
 
 /**
