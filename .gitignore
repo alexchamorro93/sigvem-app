@@ -31,3 +31,13 @@ firebase-debug.log
 .env.local
 backups/
 sigvem-mobile/
+
+# PocketBase local server (binario descargado + base de datos real en ejecución)
+# Nunca debe subirse: pb_data/ contiene usuarios, hashes y tokens reales.
+pocketbase/*
+!pocketbase/setup-collections.js
+!pocketbase/start.ps1
+!pocketbase/pb_hooks/
+
+# Copias de seguridad sueltas (no deben llevar código vulnerable/histórico al repo)
+*.bak

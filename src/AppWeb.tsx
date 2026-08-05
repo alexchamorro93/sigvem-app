@@ -2431,7 +2431,11 @@ const AppWeb: React.FC = () => {
       novedades.map(n => n.id === id ? { ...n, resuelta: true, fechaResuelta: new Date().toISOString() } : n)
     );
     const handleReopenNovedad = (id: string) => persistNovedades(
-      novedades.map(n => n.id === id ? { ...n, resuelta: false, fechaResuelta: undefined } : n)
+      novedades.map(n => {
+        if (n.id !== id) return n;
+        const { fechaResuelta, ...rest } = n;
+        return { ...rest, resuelta: false };
+      })
     );
     const handleDeleteNovedad = (id: string) => persistNovedades(novedades.filter(n => n.id !== id));
 
