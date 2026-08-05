@@ -2393,6 +2393,58 @@ const AppWeb: React.FC = () => {
     }
   };
 
+  // Barra de pestañas de la vista de sección (Vehículos/Avisos/KM-Horas/ITVs/
+  // Mensajes/Parte de Carga/Novedades). Estaba duplicada de forma idéntica en
+  // 5 sitios distintos del archivo; se unificó aquí para evitar que un cambio
+  // futuro en una pestaña se olvide de aplicarse en las otras copias.
+  const renderSectionTabBar = () => (
+    <div className="flex gap-2 border-b border-gray-200 dark:border-slate-700 pb-2 overflow-x-auto flex-nowrap scrollbar-hide">
+      <button
+        onClick={() => setSelectedSectionMenuTab('vehiculos')}
+        className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'vehiculos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
+      >
+        🚗 Vehículos
+      </button>
+      <button
+        onClick={() => setSelectedSectionMenuTab('avisos')}
+        className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'avisos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
+      >
+        🔔 Avisos
+      </button>
+      <button
+        onClick={() => setSelectedSectionMenuTab('control')}
+        className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'control' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
+      >
+        📊 KM/HORAS
+      </button>
+      <button
+        onClick={() => setSelectedSectionMenuTab('itvs')}
+        className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'itvs' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
+      >
+        🔧 ITVs {sectionHasUrgentItv && <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">!</span>}
+      </button>
+      <button
+        onClick={() => { setSelectedSectionMenuTab('mensajes'); setChatLastSeenMs(Date.now()); }}
+        className={`relative px-4 py-2 rounded-lg font-bold ${selectedSectionMenuTab === 'mensajes' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
+      >
+        💬 Mensajes
+        {(() => { const u = chatMessages.filter(m => (m.timestamp?.toMillis?.() ?? 0) > chatLastSeenMs && m.fromUserId !== (auth.currentUser?.uid ?? currentUser?.id)).length; return u > 0 && selectedSectionMenuTab !== 'mensajes' ? <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full">{u > 9 ? '9+' : u}</span> : null; })()}
+      </button>
+      <button
+        onClick={() => setSelectedSectionMenuTab('parte-carga')}
+        className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'parte-carga' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
+      >
+        📦 Parte de Carga
+      </button>
+      <button
+        onClick={() => setSelectedSectionMenuTab('novedades')}
+        className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'novedades' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
+      >
+        📝 Novedades
+      </button>
+    </div>
+  );
+
   const renderSectionNovedadesPanel = () => {
     const selectedVehicle = sectionVehiclesForControl.find(v => v.id === selectedNovedadesVehicleId) || null;
     const novedades: VehicleNovedadesState = selectedVehicle?.novedadesState || [];
@@ -6574,7 +6626,7 @@ const AppWeb: React.FC = () => {
         sectionId
       }), createdAuthUser);
 
-      console.log('[handleRegister] Usuario creado exitosamente - Contrasena encriptada');
+      console.log('[handleRegister] Usuario creado exitosamente');
 
       // Registrar en auditoría (no bloquear alta si no hay permisos en este punto)
       try {
@@ -8729,51 +8781,7 @@ const AppWeb: React.FC = () => {
                 <button onClick={() => setShowNewVehicleForm(true)} className="bg-green-600 hover:bg-green-700 text-white px-8 py-4 rounded-2xl shadow-lg font-bold flex-shrink-0">➕ NUEVO VEHÍCULO</button>
               </div>
 
-              <div className="flex gap-2 border-b border-gray-200 dark:border-slate-700 pb-2 overflow-x-auto flex-nowrap scrollbar-hide">
-                <button
-                  onClick={() => setSelectedSectionMenuTab('vehiculos')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'vehiculos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  🚗 Vehículos
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('avisos')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'avisos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  🔔 Avisos
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('control')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'control' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  📊 KM/HORAS
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('itvs')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'itvs' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  🔧 ITVs {sectionHasUrgentItv && <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">!</span>}
-                </button>
-                <button
-                  onClick={() => { setSelectedSectionMenuTab('mensajes'); setChatLastSeenMs(Date.now()); }}
-                  className={`relative px-4 py-2 rounded-lg font-bold ${selectedSectionMenuTab === 'mensajes' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  💬 Mensajes
-                  {(() => { const u = chatMessages.filter(m => (m.timestamp?.toMillis?.() ?? 0) > chatLastSeenMs && m.fromUserId !== (auth.currentUser?.uid ?? currentUser?.id)).length; return u > 0 && selectedSectionMenuTab !== 'mensajes' ? <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full">{u > 9 ? '9+' : u}</span> : null; })()}
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('parte-carga')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'parte-carga' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  📦 Parte de Carga
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('novedades')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'novedades' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  📝 Novedades
-                </button>
-              </div>
+              {renderSectionTabBar()}
 
               {renderSectionAvisosBanner()}
 
@@ -8944,51 +8952,7 @@ const AppWeb: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex gap-2 border-b border-gray-200 dark:border-slate-700 pb-2 overflow-x-auto flex-nowrap scrollbar-hide">
-              <button
-                onClick={() => setSelectedSectionMenuTab('vehiculos')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'vehiculos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🚗 Vehículos
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('avisos')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'avisos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🔔 Avisos
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('control')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'control' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📊 KM/HORAS
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('itvs')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'itvs' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🔧 ITVs {sectionHasUrgentItv && <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">!</span>}
-              </button>
-              <button
-                onClick={() => { setSelectedSectionMenuTab('mensajes'); setChatLastSeenMs(Date.now()); }}
-                className={`relative px-4 py-2 rounded-lg font-bold ${selectedSectionMenuTab === 'mensajes' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                💬 Mensajes
-                {(() => { const u = chatMessages.filter(m => (m.timestamp?.toMillis?.() ?? 0) > chatLastSeenMs && m.fromUserId !== (auth.currentUser?.uid ?? currentUser?.id)).length; return u > 0 && selectedSectionMenuTab !== 'mensajes' ? <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full">{u > 9 ? '9+' : u}</span> : null; })()}
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('parte-carga')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'parte-carga' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📦 Parte de Carga
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('novedades')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'novedades' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📝 Novedades
-              </button>
-            </div>
+            {renderSectionTabBar()}
 
             {renderSectionAvisosBanner()}
 
@@ -9103,51 +9067,7 @@ const AppWeb: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex gap-2 border-b border-gray-200 dark:border-slate-700 pb-2 overflow-x-auto flex-nowrap scrollbar-hide">
-              <button
-                onClick={() => setSelectedSectionMenuTab('vehiculos')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'vehiculos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🚗 Vehículos
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('avisos')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'avisos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🔔 Avisos
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('control')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'control' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📊 KM/HORAS
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('itvs')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'itvs' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🔧 ITVs {sectionHasUrgentItv && <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">!</span>}
-              </button>
-              <button
-                onClick={() => { setSelectedSectionMenuTab('mensajes'); setChatLastSeenMs(Date.now()); }}
-                className={`relative px-4 py-2 rounded-lg font-bold ${selectedSectionMenuTab === 'mensajes' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                💬 Mensajes
-                {(() => { const u = chatMessages.filter(m => (m.timestamp?.toMillis?.() ?? 0) > chatLastSeenMs && m.fromUserId !== (auth.currentUser?.uid ?? currentUser?.id)).length; return u > 0 && selectedSectionMenuTab !== 'mensajes' ? <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full">{u > 9 ? '9+' : u}</span> : null; })()}
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('parte-carga')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'parte-carga' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📦 Parte de Carga
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('novedades')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'novedades' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📝 Novedades
-              </button>
-            </div>
+            {renderSectionTabBar()}
 
             {renderSectionAvisosBanner()}
 
@@ -9243,51 +9163,7 @@ const AppWeb: React.FC = () => {
               )}
             </div>
 
-            <div className="flex gap-2 border-b border-gray-200 dark:border-slate-700 pb-2 overflow-x-auto flex-nowrap scrollbar-hide">
-              <button
-                onClick={() => setSelectedSectionMenuTab('vehiculos')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'vehiculos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🚗 Vehículos
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('avisos')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'avisos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🔔 Avisos
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('control')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'control' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📊 KM/HORAS
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('itvs')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'itvs' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                🔧 ITVs {sectionHasUrgentItv && <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">!</span>}
-              </button>
-              <button
-                onClick={() => { setSelectedSectionMenuTab('mensajes'); setChatLastSeenMs(Date.now()); }}
-                className={`relative px-4 py-2 rounded-lg font-bold ${selectedSectionMenuTab === 'mensajes' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                💬 Mensajes
-                {(() => { const u = chatMessages.filter(m => (m.timestamp?.toMillis?.() ?? 0) > chatLastSeenMs && m.fromUserId !== (auth.currentUser?.uid ?? currentUser?.id)).length; return u > 0 && selectedSectionMenuTab !== 'mensajes' ? <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full">{u > 9 ? '9+' : u}</span> : null; })()}
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('parte-carga')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'parte-carga' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📦 Parte de Carga
-              </button>
-              <button
-                onClick={() => setSelectedSectionMenuTab('novedades')}
-                className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'novedades' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-              >
-                📝 Novedades
-              </button>
-            </div>
+            {renderSectionTabBar()}
 
             {renderSectionAvisosBanner()}
 
@@ -9521,51 +9397,7 @@ const AppWeb: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex gap-2 border-b border-gray-200 dark:border-slate-700 pb-2 overflow-x-auto flex-nowrap scrollbar-hide">
-                <button
-                  onClick={() => setSelectedSectionMenuTab('vehiculos')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'vehiculos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  🚗 Vehículos
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('avisos')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'avisos' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  🔔 Avisos
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('control')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'control' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  📊 KM/HORAS
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('itvs')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'itvs' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  🔧 ITVs {sectionHasUrgentItv && <span className="ml-1 inline-flex items-center justify-center w-4 h-4 text-[10px] font-bold bg-red-500 text-white rounded-full">!</span>}
-                </button>
-                <button
-                  onClick={() => { setSelectedSectionMenuTab('mensajes'); setChatLastSeenMs(Date.now()); }}
-                  className={`relative px-4 py-2 rounded-lg font-bold ${selectedSectionMenuTab === 'mensajes' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  💬 Mensajes
-                  {(() => { const u = chatMessages.filter(m => (m.timestamp?.toMillis?.() ?? 0) > chatLastSeenMs && m.fromUserId !== (auth.currentUser?.uid ?? currentUser?.id)).length; return u > 0 && selectedSectionMenuTab !== 'mensajes' ? <span className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold bg-red-500 text-white rounded-full">{u > 9 ? '9+' : u}</span> : null; })()}
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('parte-carga')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'parte-carga' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  📦 Parte de Carga
-                </button>
-                <button
-                  onClick={() => setSelectedSectionMenuTab('novedades')}
-                  className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedSectionMenuTab === 'novedades' ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
-                >
-                  📝 Novedades
-                </button>
-              </div>
+              {renderSectionTabBar()}
 
               {renderSectionAvisosBanner()}
 
