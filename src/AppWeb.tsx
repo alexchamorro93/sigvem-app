@@ -924,6 +924,7 @@ const AppWeb: React.FC = () => {
   const [vehicleIncidencias, setVehicleIncidencias] = useState<VehicleIncidenciasState>(() => getDefaultVehicleIncidencias());
   const [vehicleAvisos, setVehicleAvisos] = useState<VehicleAvisosState>(() => getDefaultVehicleAvisos());
   const [sectionAvisos, setSectionAvisos] = useState<SectionAvisosState>(() => getDefaultSectionAvisos());
+  const [sectionAvisosLoadError, setSectionAvisosLoadError] = useState(false);
   const [sectionControlData, setSectionControlData] = useState<Record<string, { km: string; hours: string }>>({});
   const [sectionControlSavingId, setSectionControlSavingId] = useState<string | null>(null);
   const [sectionControlSavingAll, setSectionControlSavingAll] = useState(false);
@@ -3700,6 +3701,12 @@ const AppWeb: React.FC = () => {
         <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">Estos avisos los verá cualquier usuario que entre en esta sección.</p>
       </div>
 
+      {sectionAvisosLoadError && (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-xl p-4 text-sm text-red-700 dark:text-red-300">
+          ⚠️ No se pudieron cargar los avisos de esta sección. Recarga la página; si el problema continúa, vuelve a iniciar sesión.
+        </div>
+      )}
+
       <div className="space-y-3">
         <textarea
           placeholder="Escribe un aviso para toda la sección..."
@@ -3832,6 +3839,13 @@ const AppWeb: React.FC = () => {
 
   const renderSectionAvisosBanner = () => {
     if (selectedSectionMenuTab !== 'vehiculos') return null;
+    if (sectionAvisosLoadError) {
+      return (
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-xl p-4 text-sm text-red-700 dark:text-red-300">
+          ⚠️ No se pudieron cargar los avisos de esta sección. Recarga la página; si el problema continúa, vuelve a iniciar sesión.
+        </div>
+      );
+    }
     if (activeSectionAvisos.length === 0) return null;
 
     return (
@@ -4386,19 +4400,48 @@ const AppWeb: React.FC = () => {
   useEffect(() => {
     if (!effectiveSectionIdForAvisos) {
       setSectionAvisos(getDefaultSectionAvisos());
+      setSectionAvisosLoadError(false);
       return;
     }
 
-    const sectionRef = doc(db, 'sections', effectiveSectionIdForAvisos);
-    const unsubscribeSection = onSnapshot(sectionRef, (snapshot) => {
-      const data = snapshot.data() as Section | undefined;
-      const nextAvisos = normalizeSectionAvisos(data?.avisosState);
-      setSectionAvisos(nextAvisos);
-    }, () => {
-      setSectionAvisos(getDefaultSectionAvisos());
-    });
+    let cancelled = false;
+    let unsubscribeSection: (() => void) | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    return () => unsubscribeSection();
+    // El token de Firebase Auth puede tardar unos instantes en propagarse justo
+    // después de iniciar sesión (mismo problema ya conocido en el alta de
+    // usuarios). Sin reintento, un usuario que abre la sección justo tras
+    // loguearse puede recibir un "permission-denied" puntual y quedarse sin
+    // ver los avisos para siempre, aunque sí tenga permiso real.
+    const subscribe = (attempt: number) => {
+      const sectionRef = doc(db, 'sections', effectiveSectionIdForAvisos);
+      unsubscribeSection = onSnapshot(sectionRef, (snapshot) => {
+        if (cancelled) return;
+        setSectionAvisosLoadError(false);
+        const data = snapshot.data() as Section | undefined;
+        setSectionAvisos(normalizeSectionAvisos(data?.avisosState));
+      }, (err: any) => {
+        if (cancelled) return;
+        if (err?.code === 'permission-denied' && attempt < 4) {
+          ensureAuthTokenReady(auth.currentUser).finally(() => {
+            if (cancelled) return;
+            retryTimer = setTimeout(() => subscribe(attempt + 1), 500 + attempt * 400);
+          });
+          return;
+        }
+        console.error('[Avisos] Error cargando avisos de sección:', err);
+        setSectionAvisos(getDefaultSectionAvisos());
+        setSectionAvisosLoadError(true);
+      });
+    };
+
+    subscribe(0);
+
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (unsubscribeSection) unsubscribeSection();
+    };
   }, [effectiveSectionIdForAvisos]);
 
   useEffect(() => {
