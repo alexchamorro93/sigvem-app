@@ -183,7 +183,20 @@ type VehicleMovementsState = Array<{id: string; fechaInicio: string; horaInicio:
 type VehicleIncidenciasState = Array<{id: string; titulo: string; notas: string; observaciones: string; fecha: string; comentarios?: Array<{id: string; usuario: string; texto: string; fecha: string}>}>;
 type VehicleAvisoModo = 'persistent' | 'scheduled' | 'weekly';
 type VehicleAvisosState = Array<{id: string; texto: string; fecha: string; creadoPor?: string; modo?: VehicleAvisoModo; scheduledDate?: string; weeklyDay?: number; weeklyTime?: string; lastCompletedOccurrence?: string}>;
-type VehicleNovedadItem = { id: string; texto: string; fecha: string; resuelta: boolean; fechaResuelta?: string; creadoPor?: string };
+type NovedadCategoria = 'coche' | 'armamento' | 'afuste';
+type ArmamentoTipo = 'lag' | 'mp' | 'spike';
+type VehicleNovedadItem = {
+  id: string;
+  texto: string;
+  fecha: string;
+  resuelta: boolean;
+  fechaResuelta?: string;
+  creadoPor?: string;
+  // Sin categoria (novedades creadas antes de este cambio) se tratan como 'coche'.
+  categoria?: NovedadCategoria;
+  armamentoTipo?: ArmamentoTipo; // solo aplica si categoria === 'armamento'
+  numeroSerie?: string; // aplica si categoria === 'armamento' o 'afuste'
+};
 type VehicleNovedadesState = Array<VehicleNovedadItem>;
 type SectionAvisoMode = 'persistent' | 'weekly' | 'scheduled';
 type SectionAvisoItem = {
@@ -546,7 +559,10 @@ const AppWeb: React.FC = () => {
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [selectedSectionMenuTab, setSelectedSectionMenuTab] = useState<'vehiculos' | 'avisos' | 'control' | 'itvs' | 'mensajes' | 'parte-carga' | 'novedades'>('vehiculos');
   const [selectedNovedadesVehicleId, setSelectedNovedadesVehicleId] = useState<string>('');
+  const [selectedNovedadesCategoria, setSelectedNovedadesCategoria] = useState<NovedadCategoria>('coche');
   const [novedadesNewText, setNovedadesNewText] = useState('');
+  const [novedadesArmamentoTipo, setNovedadesArmamentoTipo] = useState<ArmamentoTipo>('lag');
+  const [novedadesNumeroSerie, setNovedadesNumeroSerie] = useState('');
   const [novedadesSaveStatus, setNovedadesSaveStatus] = useState<'' | 'saving' | 'saved' | 'error'>('');
   const [showSolventadasNovedades, setShowSolventadasNovedades] = useState(false);
   const [parteCargaItems, setParteCargaItems] = useState<Record<string, {id: string; text: string; qty: number}[]>>({});
@@ -2447,9 +2463,23 @@ const AppWeb: React.FC = () => {
 
   const renderSectionNovedadesPanel = () => {
     const selectedVehicle = sectionVehiclesForControl.find(v => v.id === selectedNovedadesVehicleId) || null;
-    const novedades: VehicleNovedadesState = selectedVehicle?.novedadesState || [];
+    const todasLasNovedades: VehicleNovedadesState = selectedVehicle?.novedadesState || [];
+    // Las novedades creadas antes de este cambio no tienen categoria: se tratan como 'coche'.
+    const novedades = todasLasNovedades.filter(n => (n.categoria || 'coche') === selectedNovedadesCategoria);
     const pendientes = novedades.filter(n => !n.resuelta);
     const solventadas = novedades.filter(n => n.resuelta);
+
+    const CATEGORIAS: { id: NovedadCategoria; label: string }[] = [
+      { id: 'coche', label: '🚗 Coche' },
+      { id: 'armamento', label: '🔫 Armamento' },
+      { id: 'afuste', label: '🛠️ Afuste' }
+    ];
+
+    const ARMAMENTO_TIPOS: { id: ArmamentoTipo; label: string }[] = [
+      { id: 'lag', label: 'LAG' },
+      { id: 'mp', label: 'MP' },
+      { id: 'spike', label: 'Spike' }
+    ];
 
     const persistNovedades = async (next: VehicleNovedadesState) => {
       if (!selectedVehicle) return;
@@ -2468,28 +2498,48 @@ const AppWeb: React.FC = () => {
     const handleAddNovedad = async () => {
       const texto = novedadesNewText.trim();
       if (!texto || !selectedVehicle) return;
+      const numeroSerie = novedadesNumeroSerie.trim();
       const nueva: VehicleNovedadItem = {
         id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
         texto,
         fecha: new Date().toISOString(),
         resuelta: false,
-        creadoPor: currentUser?.username || ''
+        creadoPor: currentUser?.username || '',
+        categoria: selectedNovedadesCategoria,
+        ...(selectedNovedadesCategoria === 'armamento' ? { armamentoTipo: novedadesArmamentoTipo } : {}),
+        ...((selectedNovedadesCategoria === 'armamento' || selectedNovedadesCategoria === 'afuste') && numeroSerie
+          ? { numeroSerie }
+          : {})
       };
-      await persistNovedades([...novedades, nueva]);
+      await persistNovedades([...todasLasNovedades, nueva]);
       setNovedadesNewText('');
+      setNovedadesNumeroSerie('');
     };
 
     const handleResolveNovedad = (id: string) => persistNovedades(
-      novedades.map(n => n.id === id ? { ...n, resuelta: true, fechaResuelta: new Date().toISOString() } : n)
+      todasLasNovedades.map(n => n.id === id ? { ...n, resuelta: true, fechaResuelta: new Date().toISOString() } : n)
     );
     const handleReopenNovedad = (id: string) => persistNovedades(
-      novedades.map(n => {
+      todasLasNovedades.map(n => {
         if (n.id !== id) return n;
         const { fechaResuelta, ...rest } = n;
         return { ...rest, resuelta: false };
       })
     );
-    const handleDeleteNovedad = (id: string) => persistNovedades(novedades.filter(n => n.id !== id));
+    const handleDeleteNovedad = (id: string) => persistNovedades(todasLasNovedades.filter(n => n.id !== id));
+
+    const renderNovedadMeta = (n: VehicleNovedadItem) => {
+      const partes: string[] = [];
+      if (n.categoria === 'armamento' && n.armamentoTipo) {
+        partes.push(ARMAMENTO_TIPOS.find(t => t.id === n.armamentoTipo)?.label || n.armamentoTipo.toUpperCase());
+      }
+      if ((n.categoria === 'armamento' || n.categoria === 'afuste') && n.numeroSerie) {
+        partes.push(`Nº serie: ${n.numeroSerie}`);
+      }
+      return partes.length > 0 ? (
+        <p className="text-xs font-semibold text-blue-600 dark:text-blue-400 mt-1">{partes.join(' · ')}</p>
+      ) : null;
+    };
 
     return (
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 p-6 space-y-6 transition-colors max-w-3xl">
@@ -2499,7 +2549,11 @@ const AppWeb: React.FC = () => {
           <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Vehículo</label>
           <select
             value={selectedNovedadesVehicleId}
-            onChange={(e) => setSelectedNovedadesVehicleId(e.target.value)}
+            onChange={(e) => {
+              setSelectedNovedadesVehicleId(e.target.value);
+              setSelectedNovedadesCategoria('coche');
+              setNovedadesNumeroSerie('');
+            }}
             className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
           >
             <option value="">-- Selecciona un vehículo --</option>
@@ -2515,6 +2569,52 @@ const AppWeb: React.FC = () => {
 
         {selectedVehicle && (
           <>
+            <div className="flex gap-2 border-b border-gray-200 dark:border-slate-700 pb-2">
+              {CATEGORIAS.map(c => {
+                const count = todasLasNovedades.filter(n => (n.categoria || 'coche') === c.id && !n.resuelta).length;
+                return (
+                  <button
+                    key={c.id}
+                    onClick={() => { setSelectedNovedadesCategoria(c.id); setNovedadesNumeroSerie(''); }}
+                    className={`flex-shrink-0 px-3 py-2 rounded-lg font-bold text-sm ${selectedNovedadesCategoria === c.id ? 'bg-blue-600 text-white' : 'bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-300'}`}
+                  >
+                    {c.label}{count > 0 ? ` (${count})` : ''}
+                  </button>
+                );
+              })}
+            </div>
+
+            {selectedNovedadesCategoria === 'armamento' && (
+              <div className="flex gap-2">
+                <select
+                  value={novedadesArmamentoTipo}
+                  onChange={(e) => setNovedadesArmamentoTipo(e.target.value as ArmamentoTipo)}
+                  className="px-4 py-3 border border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                >
+                  {ARMAMENTO_TIPOS.map(t => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+                <input
+                  type="text"
+                  spellCheck="false"
+                  placeholder="Número de serie"
+                  value={novedadesNumeroSerie}
+                  onChange={(e) => setNovedadesNumeroSerie(e.target.value)}
+                  className="flex-1 px-4 py-3 border border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                />
+              </div>
+            )}
+
+            {selectedNovedadesCategoria === 'afuste' && (
+              <input
+                type="text"
+                spellCheck="false"
+                placeholder="Número de serie"
+                value={novedadesNumeroSerie}
+                onChange={(e) => setNovedadesNumeroSerie(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-700 text-gray-900 dark:text-white rounded-xl outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+              />
+            )}
+
             <div className="flex gap-2">
               <input
                 type="text"
@@ -2553,6 +2653,7 @@ const AppWeb: React.FC = () => {
                       </button>
                       <div className="flex-1 min-w-0">
                         <p className="text-gray-900 dark:text-white whitespace-pre-wrap break-words">{n.texto}</p>
+                        {renderNovedadMeta(n)}
                         <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{formatNovedadFecha(n.fecha)}{n.creadoPor ? ` · ${n.creadoPor}` : ''}</p>
                       </div>
                       <button
@@ -2585,6 +2686,7 @@ const AppWeb: React.FC = () => {
                         <span className="flex-shrink-0 w-8 h-8 rounded-full bg-green-500 text-white flex items-center justify-center font-bold">✓</span>
                         <div className="flex-1 min-w-0">
                           <p className="text-gray-700 dark:text-gray-300 line-through whitespace-pre-wrap break-words">{n.texto}</p>
+                          {renderNovedadMeta(n)}
                           <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                             Creada: {formatNovedadFecha(n.fecha)} · Solventada: {n.fechaResuelta ? formatNovedadFecha(n.fechaResuelta) : '-'}
                           </p>
