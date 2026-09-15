@@ -21,6 +21,7 @@ import { db, auth, app } from './firebaseConfig';
 import { VehicleStatus, ViewState } from './types';
 import { useTheme } from './ThemeContext';
 import jsPDF from 'jspdf';
+import * as XLSX from 'xlsx';
 import logo from './assets/logo.jpg';
 import { ParteRelevoForm } from './components/ParteRelevoForm';
 import {
@@ -577,6 +578,8 @@ const AppWeb: React.FC = () => {
   const [parteCargaPool, setParteCargaPool] = useState<{id: string; text: string; qty: number; checked: boolean}[]>([]);
   const [parteCargaPoolNewText, setParteCargaPoolNewText] = useState('');
   const [parteCargaDragOverPool, setParteCargaDragOverPool] = useState(false);
+  const [parteCargaExcelImporting, setParteCargaExcelImporting] = useState(false);
+  const parteCargaExcelInputRef = React.useRef<HTMLInputElement | null>(null);
   const [parteCargaSaveStatus, setParteCargaSaveStatus] = useState<'' | 'saving' | 'saved' | 'error'>('');
   const [parteCargaManiobras, setParteCargaManiobras] = useState<{id: string; name: string; fechaInicio?: string; fechaFin?: string}[]>([]);
   const [selectedManiobrasId, setSelectedManiobrasId] = useState<string>('');
@@ -2763,6 +2766,51 @@ const AppWeb: React.FC = () => {
       setParteCargaItems(prev => { const next = { ...prev }; delete next[id]; return next; });
     };
 
+    // Importa un Excel (.xlsx/.xls) con columnas "Artículo" y "Cantidad" (2 columnas,
+    // con o sin fila de cabecera) y añade cada fila como un ítem a la lista provisional.
+    const handleParteCargaExcelFile = async (file: File) => {
+      setParteCargaExcelImporting(true);
+      try {
+        const buffer = await file.arrayBuffer();
+        const workbook = XLSX.read(new Uint8Array(buffer), { type: 'array' });
+        const firstSheetName = workbook.SheetNames[0];
+        if (!firstSheetName) {
+          alert('El Excel no tiene ninguna hoja con datos.');
+          return;
+        }
+        const sheet = workbook.Sheets[firstSheetName];
+        const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, blankrows: false });
+
+        const newItems: { id: string; text: string; qty: number; checked: boolean }[] = [];
+        const now = Date.now();
+        rows.forEach((row, idx) => {
+          const rawName = row?.[0];
+          const rawQty = row?.[1];
+          const name = rawName === undefined || rawName === null ? '' : String(rawName).trim();
+          if (!name) return;
+          // Salta una posible fila de cabecera (ej: "Artículo" / "Cantidad")
+          if (idx === 0 && isNaN(Number(rawQty)) && !/^\d+([.,]\d+)?$/.test(String(rawQty ?? '').trim())) {
+            const looksLikeHeader = /art[ií]culo|nombre|material|descripci[óo]n|cantidad|qty/i.test(name + ' ' + String(rawQty ?? ''));
+            if (looksLikeHeader) return;
+          }
+          const parsedQty = parseFloat(String(rawQty ?? '').replace(',', '.'));
+          const qty = Number.isFinite(parsedQty) && parsedQty > 0 ? parsedQty : 1;
+          newItems.push({ id: `pool_${now}_${idx}`, text: name, qty, checked: false });
+        });
+
+        if (newItems.length === 0) {
+          alert('No se ha encontrado ningún artículo válido en la primera hoja del Excel.\n\nFormato esperado: columna A = nombre del artículo, columna B = cantidad (opcional, por fila).');
+          return;
+        }
+        setParteCargaPool(prev => [...prev, ...newItems]);
+      } catch (err: any) {
+        console.error('[ParteCarga] Error importando Excel:', err);
+        alert(`No se pudo leer el archivo Excel.\n\n${err?.message || err}`);
+      } finally {
+        setParteCargaExcelImporting(false);
+      }
+    };
+
     // ── Drag handlers for items (move between vehicles) ──────────────────
     const handleItemDragStart = (e: React.DragEvent, vehicleKey: string, itemId: string) => {
       if (!dragHandleActiveRef.current) { e.preventDefault(); return; }
@@ -3081,9 +3129,33 @@ const AppWeb: React.FC = () => {
           onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setParteCargaDragOverPool(false); }}
           onDrop={handlePoolDrop}
         >
-          <h3 className="text-base font-bold text-amber-800 dark:text-amber-300 mb-1">📋 Lista provisional de material</h3>
+          <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+            <h3 className="text-base font-bold text-amber-800 dark:text-amber-300">📋 Lista provisional de material</h3>
+            <div>
+              <input
+                type="file"
+                accept=".xlsx,.xls"
+                ref={parteCargaExcelInputRef}
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleParteCargaExcelFile(file);
+                  e.target.value = '';
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => parteCargaExcelInputRef.current?.click()}
+                disabled={parteCargaExcelImporting}
+                className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                title="Importar un Excel con columnas: Artículo, Cantidad"
+              >
+                {parteCargaExcelImporting ? 'Importando…' : '📎 Importar desde Excel'}
+              </button>
+            </div>
+          </div>
           <p className="text-xs text-amber-700 dark:text-amber-400 mb-3">
-            Añade aquí todo el material a cargar. Cuando sepas en qué vehículo va, arrástralo al vehículo correspondiente. También puedes arrastrar ítems de vehículos de vuelta aquí.
+            Añade aquí todo el material a cargar (a mano, pegando una lista, o importando un Excel con columna A = artículo y columna B = cantidad). Cuando sepas en qué vehículo va, arrástralo al vehículo correspondiente. También puedes arrastrar ítems de vehículos de vuelta aquí.
           </p>
           <div className="flex gap-2 mb-3">
             <input
