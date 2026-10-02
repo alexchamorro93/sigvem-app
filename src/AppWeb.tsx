@@ -3288,7 +3288,7 @@ const AppWeb: React.FC = () => {
                     onChange={e => movePoolItemToVehicle(pi.id, e.target.value)}
                     disabled={orderedVehicles.length === 0}
                     title="Mover a un vehículo (también funciona en móvil, sin necesidad de arrastrar)"
-                    className="shrink-0 max-w-[9rem] px-1.5 py-1 border border-amber-300 dark:border-amber-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-400 transition-colors"
+                    className="shrink-0 max-w-[9rem] px-1.5 py-1 border border-sky-300 dark:border-sky-600 bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 font-medium rounded-lg text-xs outline-none focus:ring-2 focus:ring-sky-400 transition-colors"
                   >
                     <option value="" disabled>Mover a…</option>
                     {orderedVehicles.map(v => (
@@ -3442,7 +3442,7 @@ const AppWeb: React.FC = () => {
                             value=""
                             onChange={e => moveVehicleItemTo(v.key, item.id, e.target.value)}
                             title="Mover a la lista provisional o a otro vehículo (también funciona en móvil)"
-                            className="shrink-0 max-w-[9rem] px-1.5 py-1 border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400 transition-colors"
+                            className="shrink-0 max-w-[9rem] px-1.5 py-1 border border-sky-300 dark:border-sky-600 bg-sky-50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300 font-medium rounded-lg text-xs outline-none focus:ring-2 focus:ring-sky-400 transition-colors"
                           >
                             <option value="" disabled>Mover a…</option>
                             <option value="__pool__">📋 Lista provisional</option>
