@@ -3254,7 +3254,7 @@ const AppWeb: React.FC = () => {
                   draggable
                   onDragStart={e => handlePoolItemDragStart(e, pi.id)}
                   onDragEnd={handlePoolItemDragEnd}
-                  className={`flex items-center gap-2 rounded-lg px-2 py-1 ${pi.checked ? 'opacity-50' : 'bg-white dark:bg-slate-700/50'} transition-opacity`}
+                  className={`flex flex-wrap items-center gap-2 rounded-lg px-2 py-1 ${pi.checked ? 'opacity-50' : 'bg-white dark:bg-slate-700/50'} transition-opacity`}
                 >
                   <span className="text-amber-400 dark:text-amber-500 cursor-grab active:cursor-grabbing select-none shrink-0" title="Arrastrar al vehículo"
                     onMouseDown={() => { dragHandleActiveRef.current = true; }}
@@ -3271,7 +3271,7 @@ const AppWeb: React.FC = () => {
                     type="text"
                     value={pi.text}
                     onChange={e => setParteCargaPool(prev => prev.map(i => i.id === pi.id ? { ...i, text: e.target.value } : i))}
-                    className={`flex-1 px-2 py-1 border border-transparent bg-transparent text-gray-900 dark:text-white rounded text-sm outline-none focus:border-amber-400 focus:bg-white dark:focus:bg-slate-700 transition-colors ${pi.checked ? 'line-through text-gray-400' : ''}`}
+                    className={`flex-1 min-w-[140px] px-2 py-1 border border-transparent bg-transparent text-gray-900 dark:text-white rounded text-sm outline-none focus:border-amber-400 focus:bg-white dark:focus:bg-slate-700 transition-colors ${pi.checked ? 'line-through text-gray-400' : ''}`}
                   />
                   <div className="flex items-center gap-1 shrink-0">
                     <span className="text-xs text-gray-500 dark:text-gray-400">Cant.</span>
@@ -3410,7 +3410,7 @@ const AppWeb: React.FC = () => {
                           draggable
                           onDragStart={e => handleItemDragStart(e, v.key, item.id)}
                           onDragEnd={handleItemDragEnd}
-                          className="flex items-center gap-2 rounded-lg bg-gray-50 dark:bg-slate-700/40 px-1 py-0.5"
+                          className="flex flex-wrap items-center gap-2 rounded-lg bg-gray-50 dark:bg-slate-700/40 px-1 py-0.5"
                         >
                           <span
                             className="text-gray-400 dark:text-gray-500 cursor-grab active:cursor-grabbing select-none shrink-0"
@@ -3426,7 +3426,7 @@ const AppWeb: React.FC = () => {
                             value={item.text}
                             onChange={e => updateItem(v.key, item.id, 'text', e.target.value)}
                             placeholder="Descripción del elemento..."
-                            className="flex-1 px-3 py-1.5 border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+                            className="flex-1 min-w-[140px] px-3 py-1.5 border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
                           />
                           <div className="flex items-center gap-1 shrink-0">
                             <span className="text-xs text-gray-500 dark:text-gray-400">Cant.</span>
