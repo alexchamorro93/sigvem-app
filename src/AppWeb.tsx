@@ -2933,6 +2933,39 @@ const AppWeb: React.FC = () => {
       }
     };
 
+    // ── Alternativa sin arrastrar (necesaria en móvil: el drag & drop HTML5
+    // no funciona con el dedo en pantallas táctiles) ──────────────────────
+    const movePoolItemToVehicle = (poolId: string, targetVehicleKey: string) => {
+      if (!targetVehicleKey) return;
+      setParteCargaPool(prev => {
+        const poolItem = prev.find(i => i.id === poolId);
+        if (!poolItem) return prev;
+        setParteCargaItems(items => ({
+          ...items,
+          [targetVehicleKey]: [...(items[targetVehicleKey] || []), { id: `${targetVehicleKey}_${Date.now()}`, text: poolItem.text, qty: poolItem.qty }],
+        }));
+        return prev.filter(i => i.id !== poolId);
+      });
+    };
+
+    const moveVehicleItemTo = (srcKey: string, itemId: string, target: string) => {
+      if (!target || target === srcKey) return;
+      setParteCargaItems(prev => {
+        const srcItems = prev[srcKey] || [];
+        const item = srcItems.find(i => i.id === itemId);
+        if (!item) return prev;
+        if (target === '__pool__') {
+          setParteCargaPool(pool => [...pool, { id: `pool_${Date.now()}`, text: item.text, qty: item.qty, checked: false }]);
+          return { ...prev, [srcKey]: srcItems.filter(i => i.id !== itemId) };
+        }
+        return {
+          ...prev,
+          [srcKey]: srcItems.filter(i => i.id !== itemId),
+          [target]: [...(prev[target] || []), item],
+        };
+      });
+    };
+
     return (
       <div className="space-y-6">
         <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 p-6 transition-colors">
@@ -3250,6 +3283,18 @@ const AppWeb: React.FC = () => {
                       className="w-14 px-1.5 py-1 border border-transparent bg-transparent text-gray-900 dark:text-white rounded text-sm outline-none focus:border-amber-400 focus:bg-white dark:focus:bg-slate-700 transition-colors text-center"
                     />
                   </div>
+                  <select
+                    value=""
+                    onChange={e => movePoolItemToVehicle(pi.id, e.target.value)}
+                    disabled={orderedVehicles.length === 0}
+                    title="Mover a un vehículo (también funciona en móvil, sin necesidad de arrastrar)"
+                    className="shrink-0 max-w-[9rem] px-1.5 py-1 border border-amber-300 dark:border-amber-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-amber-400 transition-colors"
+                  >
+                    <option value="" disabled>Mover a…</option>
+                    {orderedVehicles.map(v => (
+                      <option key={v.key} value={v.key}>{parteCargaVehicleLabels[v.key] || v.label}</option>
+                    ))}
+                  </select>
                   <button
                     onClick={() => setParteCargaPool(prev => prev.filter(i => i.id !== pi.id))}
                     className="text-red-400 hover:text-red-600 text-sm font-bold shrink-0"
@@ -3393,6 +3438,18 @@ const AppWeb: React.FC = () => {
                               className="w-16 px-2 py-1.5 border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-white rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-colors text-center"
                             />
                           </div>
+                          <select
+                            value=""
+                            onChange={e => moveVehicleItemTo(v.key, item.id, e.target.value)}
+                            title="Mover a la lista provisional o a otro vehículo (también funciona en móvil)"
+                            className="shrink-0 max-w-[9rem] px-1.5 py-1 border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-700 dark:text-gray-200 rounded-lg text-xs outline-none focus:ring-2 focus:ring-blue-400 transition-colors"
+                          >
+                            <option value="" disabled>Mover a…</option>
+                            <option value="__pool__">📋 Lista provisional</option>
+                            {orderedVehicles.filter(ov => ov.key !== v.key).map(ov => (
+                              <option key={ov.key} value={ov.key}>{parteCargaVehicleLabels[ov.key] || ov.label}</option>
+                            ))}
+                          </select>
                           <button
                             onClick={() => removeItem(v.key, item.id)}
                             className="text-red-500 hover:text-red-700 text-sm font-bold shrink-0"
